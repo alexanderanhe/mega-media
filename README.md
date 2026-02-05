@@ -1,87 +1,89 @@
-# Welcome to React Router!
+# Mega Media Grid (React Router v7 + api/)
 
-A modern, production-ready template for building full-stack React applications using React Router.
+Proyecto full-stack en un solo runtime de React Router v7.
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+## Incluye
 
-## Features
+- API en `app/routes/api.*` (sin servidor separado)
+- Auth JWT por cookie `httpOnly` + roles `ADMIN` / `VIEWER`
+- MongoDB para usuarios y media
+- Cloudflare R2 (S3 compatible) para objetos
+- Pipeline de media (LOD + metadata EXIF/ffprobe)
+- UI: `/login`, `/`, `/admin/users`, `/admin/upload`, `/admin/media`
+- Canvas grid con PixiJS, pan/zoom, culling y LOD por zoom
+- Video overlay único (`<video>`) alineado al tile
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
+## Requisitos
 
-## Getting Started
+- Node 20+
+- MongoDB accesible
+- Bucket R2 y credenciales
+- `ffmpeg` disponible para poster/preview de video
 
-### Installation
+## Variables de entorno
 
-Install the dependencies:
-
-```bash
-npm install
-```
-
-### Development
-
-Start the development server with HMR:
+Usa `.env.example` como base:
 
 ```bash
-npm run dev
+cp .env.example .env
 ```
 
-Your application will be available at `http://localhost:5173`.
+Variables clave:
 
-## Building for Production
+- `MONGODB_URI`
+- `JWT_SECRET`
+- `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
+- `FFMPEG_PATH` (opcional, si ffmpeg no está en PATH)
+- `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` (opcional para primer admin)
 
-Create a production build:
+## Crear primer admin
+
+Opción recomendada:
+
+1. Define `BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD`.
+2. Inicia la app.
+3. Si no existe ningún ADMIN, se crea automáticamente uno.
+
+Luego elimina esas variables del `.env`.
+
+## Ejecutar local
 
 ```bash
-npm run build
+pnpm install
+pnpm run dev
 ```
 
-## Deployment
+## Flujo de subida y LOD
 
-### Docker Deployment
+1. En `/admin/upload` subes archivo y defines `visibility`.
+2. API guarda `original` en R2 y crea documento `media` con `status=processing`.
+3. Se encola job en memoria del runtime:
+   - Imagen: EXIF + LOD `lod0..lod4` webp.
+   - Video: poster jpg + LOD desde poster + preview mp4 (si ffmpeg lo permite).
+4. Documento pasa a `ready` o `error`.
 
-To build and run using Docker:
+Keys R2 usadas:
 
-```bash
-docker build -t my-app .
+- `media/{id}/original.ext`
+- `media/{id}/lod0.webp ... lod4.webp`
+- `media/{id}/poster.jpg`
+- `media/{id}/preview.mp4`
 
-# Run the container
-docker run -p 3000:3000 my-app
-```
+## Limitaciones actuales del runtime
 
-The containerized application can be deployed to any platform that supports Docker, including:
+- La cola es **en memoria del proceso**. Si reinicia el servidor, jobs pendientes se pierden.
+- No hay worker persistente externo (intencional, para respetar single-runtime).
+- Procesamiento de video depende de `ffmpeg` y puede degradar a poster-only.
 
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
+## Endpoints principales
 
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `npm run build`
-
-```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `GET/POST /api/admin/users`
+- `PATCH /api/admin/users/:id`
+- `POST /api/admin/media/upload` (multipart)
+- `PATCH /api/admin/media/:id`
+- `GET /api/media/pages`
+- `POST /api/media/urls`
+- `GET /api/media/:id/play`

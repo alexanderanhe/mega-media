@@ -1,0 +1,156 @@
+export type SessionUser = { id: string; email: string; role: "ADMIN" | "VIEWER" } | null;
+
+export type MediaListItem = {
+  id: string;
+  type: "image" | "video";
+  aspect: number;
+  dateEffective: string;
+  hasLocation: boolean;
+  visibility: "PUBLIC" | "PRIVATE";
+  status: "processing" | "ready" | "error";
+  errorMessage?: string | null;
+  title?: string;
+  description?: string;
+  placeName?: string;
+  dateTaken?: string | null;
+  tags?: string[];
+  category?: string | null;
+  sizeBytes?: number | null;
+  durationSeconds?: number | null;
+};
+
+async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const res = await fetch(input, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const json = await res.json();
+      message = json.error ?? message;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+export function getMe() {
+  return request<{ user: SessionUser }>("/api/auth/me", { headers: {} });
+}
+
+export function login(email: string, password: string) {
+  return request<{ ok: boolean }>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function logout() {
+  return request<{ ok: boolean }>("/api/auth/logout", { method: "POST", headers: {} });
+}
+
+export function getMediaPages(query: URLSearchParams) {
+  return request<{ page: number; pageSize: number; total: number; items: MediaListItem[] }>(
+    `/api/media/pages?${query.toString()}`,
+    { headers: {} },
+  );
+}
+
+export function getMediaFacets(params?: {
+  year?: string;
+  month?: string;
+  from?: string;
+  to?: string;
+  type?: "image" | "video";
+  tag?: string;
+  category?: string;
+}) {
+  const query = new URLSearchParams();
+  if (params?.year) query.set("year", params.year);
+  if (params?.month) query.set("month", params.month);
+  if (params?.from) query.set("from", params.from);
+  if (params?.to) query.set("to", params.to);
+  if (params?.type) query.set("type", params.type);
+  if (params?.tag) query.set("tag", params.tag);
+  if (params?.category) query.set("category", params.category);
+  const suffix = query.toString();
+  return request<{
+    years: Array<{ year: number; count: number }>;
+    months: Array<{ month: number; count: number }>;
+    tags: Array<{ tag: string; count: number }>;
+    categories: Array<{ category: string; count: number }>;
+  }>(`/api/media/facets${suffix ? `?${suffix}` : ""}`, { headers: {} });
+}
+
+export function getMediaTags(query?: string) {
+  const params = new URLSearchParams();
+  if (query) params.set("q", query);
+  const suffix = params.toString();
+  return request<{ items: string[] }>(`/api/media/tags${suffix ? `?${suffix}` : ""}`, { headers: {} });
+}
+
+export function getMediaCategories(query?: string) {
+  const params = new URLSearchParams();
+  if (query) params.set("q", query);
+  const suffix = params.toString();
+  return request<{ items: string[] }>(`/api/media/categories${suffix ? `?${suffix}` : ""}`, { headers: {} });
+}
+
+export function getBatchUrls(requests: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4 }>) {
+  return request<{ items: Array<{ id: string; lod: number; url: string | null }> }>("/api/media/urls", {
+    method: "POST",
+    body: JSON.stringify({ requests }),
+  });
+}
+
+export function getVideoPlayback(id: string) {
+  return request<{ id: string; playbackUrl: string; posterUrl: string | null; mime: string }>(`/api/media/${id}/play`, {
+    headers: {},
+  });
+}
+
+export function getAdminUsers() {
+  return request<{ items: Array<{ id: string; email: string; role: "ADMIN" | "VIEWER"; isActive: boolean; createdAt: string }> }>(
+    "/api/admin/users",
+    { headers: {} },
+  );
+}
+
+export function createAdminUser(payload: { email: string; password: string; role: "ADMIN" | "VIEWER" }) {
+  return request<{ id: string }>("/api/admin/users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchAdminUser(id: string, payload: { role?: "ADMIN" | "VIEWER"; isActive?: boolean; password?: string }) {
+  return request<{ ok: boolean }>(`/api/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchMedia(id: string, payload: {
+  visibility?: "PUBLIC" | "PRIVATE";
+  title?: string;
+  description?: string;
+  tags?: string[];
+  category?: string | null;
+  dateTaken?: string | null;
+  placeName?: string | null;
+  location?: { lat: number; lng: number; source: "manual" | "exif" | "none" } | null;
+}) {
+  return request<{ ok: boolean }>(`/api/admin/media/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
