@@ -1,5 +1,4 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Application, Assets, Container, Sprite, Text, TextStyle, Texture } from "pixi.js";
 import type { Camera, GridMediaItem, Tile } from "./types";
 import { pickLod } from "./lod-policy";
 import { TextureCache } from "./texture-cache";
@@ -37,11 +36,11 @@ export const GameCanvas = forwardRef<
   { items: GridMediaItem[]; onZoomChange?: (zoom: number) => void }
 >(function GameCanvas({ items, onZoomChange }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const appRef = useRef<Application | null>(null);
-  const worldRef = useRef<Container | null>(null);
+  const appRef = useRef<any>(null);
+  const worldRef = useRef<any>(null);
   const schedulerRef = useRef(new FetchScheduler());
   const texturesRef = useRef(new TextureCache(600));
-  const spritesRef = useRef(new Map<string, Sprite>());
+  const spritesRef = useRef(new Map<string, any>());
   const lodRef = useRef(new Map<string, 0 | 1 | 2 | 3 | 4>());
   const urlRef = useRef(new Map<string, string>());
   const cameraRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
@@ -69,11 +68,31 @@ export const GameCanvas = forwardRef<
     if (!hostMaybe) return;
     const host: HTMLDivElement = hostMaybe;
 
-    const app = new Application();
-    const world = new Container();
+    let ApplicationCtor: any;
+    let ContainerCtor: any;
+    let SpriteCtor: any;
+    let TextCtor: any;
+    let TextStyleCtor: any;
+    let TextureCtor: any;
+    let AssetsModule: any;
+    let app: any = null;
+    let world: any = null;
     let appInitialized = false;
 
     async function init() {
+      if (typeof window === "undefined") return;
+      const pixi = await import("pixi.js");
+      ApplicationCtor = pixi.Application;
+      ContainerCtor = pixi.Container;
+      SpriteCtor = pixi.Sprite;
+      TextCtor = pixi.Text;
+      TextStyleCtor = pixi.TextStyle;
+      TextureCtor = pixi.Texture;
+      AssetsModule = pixi.Assets;
+
+      app = new ApplicationCtor();
+      world = new ContainerCtor();
+
       await app.init({ resizeTo: host as HTMLElement, antialias: true, backgroundAlpha: 1, backgroundColor: 0x000000 });
       appInitialized = true;
       if (!mounted) return;
@@ -329,7 +348,7 @@ export const GameCanvas = forwardRef<
 
         let sprite = spritesRef.current.get(tile.item.id);
         if (!sprite) {
-          sprite = new Sprite(Texture.WHITE);
+          sprite = new SpriteCtor(TextureCtor.WHITE);
           sprite.x = tile.x;
           sprite.y = tile.y;
           sprite.width = tile.w;
@@ -337,9 +356,9 @@ export const GameCanvas = forwardRef<
           spritesRef.current.set(tile.item.id, sprite);
           world.addChild(sprite);
 
-          const label = new Text({
+          const label = new TextCtor({
             text: tile.item.type === "video" ? "▶" : "",
-            style: new TextStyle({ fill: "#f8fafc", fontSize: 28 }),
+            style: new TextStyleCtor({ fill: "#f8fafc", fontSize: 28 }),
           });
           label.anchor.set(0.5);
           label.position.set(tile.w / 2, tile.h / 2);
@@ -368,7 +387,7 @@ export const GameCanvas = forwardRef<
         const key = `${item.id}:${item.lod}`;
         if (urlRef.current.get(key) === item.url) continue;
         urlRef.current.set(key, item.url);
-        const texture = await Assets.load<Texture>(item.url);
+        const texture = await AssetsModule.load(item.url);
         texturesRef.current.set(key, texture);
       }
 
