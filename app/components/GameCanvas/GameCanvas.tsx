@@ -22,7 +22,7 @@ type CameraAnimation = {
 
 const TILE_BASE = 180;
 const GAP = 12;
-const MIN_ZOOM = 0.4;
+const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 
 export type GameCanvasHandle = {
