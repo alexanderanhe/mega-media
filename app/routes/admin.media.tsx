@@ -15,6 +15,7 @@ export default function AdminMediaRoute() {
     Array<{
       id: string;
       type: "image" | "video";
+      aspect: number;
       visibility: "PUBLIC" | "PRIVATE";
       dateEffective: string;
       status: string;
@@ -85,6 +86,7 @@ export default function AdminMediaRoute() {
         res.items.map((item) => ({
           id: item.id,
           type: item.type,
+          aspect: item.aspect,
           visibility: item.visibility,
           dateEffective: item.dateEffective,
           status: item.status,
@@ -220,6 +222,7 @@ export default function AdminMediaRoute() {
             <tr className="text-left text-slate-400">
               <th>Media</th>
               <th>Format</th>
+              <th>Aspect</th>
               <th>Duration</th>
               <th>Size</th>
               <th>Date</th>
@@ -233,6 +236,7 @@ export default function AdminMediaRoute() {
                   <tr key={`skeleton-${idx}`} className="border-t border-white/10">
                     <td className="py-3"><div className="skeleton h-4 w-56" /></td>
                     <td><div className="skeleton h-4 w-16" /></td>
+                    <td><div className="skeleton h-4 w-12" /></td>
                     <td><div className="skeleton h-4 w-20" /></td>
                     <td><div className="skeleton h-4 w-20" /></td>
                     <td><div className="skeleton h-4 w-28" /></td>
@@ -254,6 +258,7 @@ export default function AdminMediaRoute() {
                       </div>
                     </td>
                     <td className="text-xs uppercase text-slate-300">{item.type}</td>
+                    <td className="text-xs text-slate-300">{formatAspect(item.aspect)}</td>
                     <td className="text-xs text-slate-300">{item.type === "video" ? formatDuration(item.durationSeconds) : "-"}</td>
                     <td className="text-xs text-slate-300">{formatBytes(item.sizeBytes ?? 0)}</td>
                     <td className="text-sm text-slate-300">{new Date(item.dateEffective).toLocaleDateString()}</td>
@@ -628,6 +633,11 @@ function formatBytes(bytes: number) {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
+function formatAspect(aspect?: number | null) {
+  if (!aspect || !Number.isFinite(aspect)) return "-";
+  return aspect.toFixed(2);
 }
 
 function formatDuration(value?: number | null) {

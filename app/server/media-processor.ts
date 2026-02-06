@@ -67,8 +67,10 @@ async function processImage(input: EnqueueInput) {
   }
 
   const original = await fs.readFile(input.localPath);
-  const { buffer: decodedBuffer, mime: decodedMime } = await decodeImageBuffer(original, input.extension, input.mime);
-  const originalMetadata = await sharp(decodedBuffer).rotate().metadata();
+  const { buffer: decodedBuffer } = await decodeImageBuffer(original, input.extension, input.mime);
+  const baseMetadata = await sharp(decodedBuffer).metadata();
+  const orientation = normalizeOrientation(parsed?.Orientation ?? baseMetadata.orientation);
+  const oriented = getOrientedDimensions(baseMetadata, orientation);
   const variants: Record<string, { r2Key: string; w: number; h: number; bytes: number; mime: string }> = {};
 
   for (let i = 0; i < IMAGE_LODS.length; i += 1) {
@@ -113,7 +115,7 @@ async function processImage(input: EnqueueInput) {
         poster: null,
         preview: null,
         type: "image",
-        aspect: originalMetadata.width && originalMetadata.height ? originalMetadata.width / originalMetadata.height : 1,
+        aspect: oriented.width && oriented.height ? oriented.width / oriented.height : 1,
       },
       $unset: {
         errorMessage: "",
@@ -258,6 +260,28 @@ function normalizeNumber(value: unknown) {
   if (typeof value !== "number") return null;
   if (!Number.isFinite(value)) return null;
   return value;
+}
+
+function normalizeOrientation(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function getOrientedDimensions(
+  metadata: { width?: number; height?: number },
+  orientation?: number,
+) {
+  const width = metadata.width ?? 0;
+  const height = metadata.height ?? 0;
+  if (!width || !height) return { width, height };
+  if (orientation && [5, 6, 7, 8].includes(orientation)) {
+    return { width: height, height: width };
+  }
+  return { width, height };
 }
 
 async function decodeImageBuffer(buffer: Buffer, extension: string, mime: string) {

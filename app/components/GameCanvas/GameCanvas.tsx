@@ -201,6 +201,10 @@ export const GameCanvas = forwardRef<
 
       const onWheel = (event: WheelEvent) => {
         event.preventDefault();
+        if (focusedIdRef.current) {
+          focusedIdRef.current = null;
+          setOverlay(null);
+        }
         const hostRect = host.getBoundingClientRect();
         const pointerX = event.clientX - hostRect.left;
         const pointerY = event.clientY - hostRect.top;
@@ -410,7 +414,9 @@ export const GameCanvas = forwardRef<
           sprite.width = tile.w;
           sprite.height = tile.h;
           positionPlaySprite(sprite, tile);
-          sprite.alpha = isMostlyVisible(tile, hostRect, cameraRef.current, 0.7) ? 1 : 0.35;
+          sprite.alpha = computeSpriteAlpha(tile, hostRect, cameraRef.current);
+          const playSprite = (sprite as any).__play;
+          if (playSprite) playSprite.alpha = sprite.alpha;
           loadingIdsRef.current.delete(tile.item.id);
           continue;
         }
@@ -455,7 +461,9 @@ export const GameCanvas = forwardRef<
           sprite.width = tile.w;
           sprite.height = tile.h;
           positionPlaySprite(sprite, tile);
-          sprite.alpha = isMostlyVisible(tile, hostRect, cameraRef.current, 0.7) ? 1 : 0.35;
+          sprite.alpha = computeSpriteAlpha(tile, hostRect, cameraRef.current);
+          const playSprite = (sprite as any).__play;
+          if (playSprite) playSprite.alpha = sprite.alpha;
           loadingIdsRef.current.delete(tile.item.id);
         }
       }
@@ -538,6 +546,14 @@ export const GameCanvas = forwardRef<
     focusedIdRef.current = null;
     setOverlay(null);
     drawVisibleRef.current();
+  }
+
+  function computeSpriteAlpha(tile: Tile, hostRect: DOMRect, camera: Camera) {
+    const base = isMostlyVisible(tile, hostRect, camera, 0.7) ? 1 : 0.35;
+    const focusedId = focusedIdRef.current;
+    if (!focusedId) return base;
+    if (tile.item.id === focusedId) return 1;
+    return Math.min(base, 0.22);
   }
 });
 
