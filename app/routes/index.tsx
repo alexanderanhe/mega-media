@@ -90,7 +90,12 @@ export default function IndexRoute() {
         />
         <CircleButton onClick={() => setShowFilters(true)} icon={<FiCalendar />} />
         <CircleButton onClick={() => canvasRef.current?.zoomOut()} icon={<FiMinus />} />
-        <CircleButton label={`${Math.round(zoom * 100)}%`} subtle compact />
+        <CircleButton
+          onClick={() => canvasRef.current?.resetView()}
+          label={`${Math.round(zoom * 100)}%`}
+          subtle
+          compact
+        />
         <CircleButton onClick={() => canvasRef.current?.zoomIn()} icon={<FiPlus />} />
       </div>
 
@@ -179,10 +184,9 @@ function CircleButton({
     <button
       type="button"
       onClick={onClick}
-      className={`pointer-events-auto flex items-center justify-center rounded-full border border-white/10 font-semibold shadow-lg backdrop-blur ${
-        compact ? "h-10 w-10 text-[11px]" : "h-12 w-12 text-sm"
-      } ${subtle ? "bg-black/40 text-slate-200" : "bg-black/70 text-white hover:bg-black/80"
-      }`}
+      className={`pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/10 font-semibold shadow-lg backdrop-blur ${
+        compact ? "text-[11px]" : "text-sm"
+      } ${subtle ? "bg-black/40 text-slate-200" : "bg-black/70 text-white hover:bg-black/80"}`}
     >
       {icon ?? label}
     </button>

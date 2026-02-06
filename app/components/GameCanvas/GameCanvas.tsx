@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { Camera, GridMediaItem, Tile } from "./types";
 import { pickLod } from "./lod-policy";
 import { TextureCache } from "./texture-cache";
@@ -22,13 +22,15 @@ type CameraAnimation = {
 
 const TILE_BASE = 180;
 const GAP = 12;
+const DEFAULT_SIDE_PADDING = 72;
 const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 4;
+const MAX_ZOOM = 5;
 
 export type GameCanvasHandle = {
   zoomIn: () => void;
   zoomOut: () => void;
   getZoom: () => number;
+  resetView: () => void;
 };
 
 export const GameCanvas = forwardRef<
@@ -43,14 +45,45 @@ export const GameCanvas = forwardRef<
   const spritesRef = useRef(new Map<string, any>());
   const lodRef = useRef(new Map<string, 0 | 1 | 2 | 3 | 4>());
   const urlRef = useRef(new Map<string, string>());
+  const loadingIdsRef = useRef(new Set<string>());
+  const playTextureRef = useRef<any>(null);
   const cameraRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
   const [overlay, setOverlay] = useState<OverlayState | null>(null);
   const focusedIdRef = useRef<string | null>(null);
   const drawVisibleRef = useRef<() => void>(() => undefined);
   const activeAnimationRef = useRef<CameraAnimation | null>(null);
-
+  const overlayRef = useRef<OverlayState | null>(null);
+  const onZoomChangeRef = useRef<typeof onZoomChange>(onZoomChange);
   const tiles = useMemo(() => layoutTiles(items), [items]);
   const bounds = useMemo(() => contentBounds(tiles), [tiles]);
+
+  const centerContent = useCallback(
+    (width: number, height: number) => {
+      const camera = cameraRef.current;
+      if (!tiles.length) return;
+      const contentWidth = bounds.maxX - bounds.minX;
+      const contentHeight = bounds.maxY - bounds.minY;
+      const availableWidth = Math.max(1, width - DEFAULT_SIDE_PADDING * 2);
+      const fitZoomX = contentWidth > 0 ? availableWidth / contentWidth : 1;
+      const fitZoomY = contentHeight > 0 ? height / contentHeight : 1;
+      const targetZoom = Math.min(1, fitZoomX, fitZoomY);
+      camera.zoom = targetZoom;
+      camera.x =
+        DEFAULT_SIDE_PADDING +
+        (availableWidth - contentWidth * targetZoom) / 2 -
+        bounds.minX * targetZoom;
+      camera.y = height / 2 - (bounds.minY + bounds.maxY) / 2 * targetZoom;
+    },
+    [tiles, bounds],
+  );
+
+  useEffect(() => {
+    overlayRef.current = overlay;
+  }, [overlay]);
+
+  useEffect(() => {
+    onZoomChangeRef.current = onZoomChange;
+  }, [onZoomChange]);
 
   useImperativeHandle(
     ref,
@@ -58,6 +91,7 @@ export const GameCanvas = forwardRef<
       zoomIn: () => nudgeZoom(1.15),
       zoomOut: () => nudgeZoom(0.85),
       getZoom: () => cameraRef.current.zoom,
+      resetView: () => resetView(),
     }),
     [],
   );
@@ -71,8 +105,6 @@ export const GameCanvas = forwardRef<
     let ApplicationCtor: any;
     let ContainerCtor: any;
     let SpriteCtor: any;
-    let TextCtor: any;
-    let TextStyleCtor: any;
     let TextureCtor: any;
     let AssetsModule: any;
     let app: any = null;
@@ -85,8 +117,6 @@ export const GameCanvas = forwardRef<
       ApplicationCtor = pixi.Application;
       ContainerCtor = pixi.Container;
       SpriteCtor = pixi.Sprite;
-      TextCtor = pixi.Text;
-      TextStyleCtor = pixi.TextStyle;
       TextureCtor = pixi.Texture;
       AssetsModule = pixi.Assets;
 
@@ -103,7 +133,7 @@ export const GameCanvas = forwardRef<
 
       centerContent(host.clientWidth, host.clientHeight);
       drawVisible();
-      onZoomChange?.(cameraRef.current.zoom);
+      onZoomChangeRef.current?.(cameraRef.current.zoom);
 
       let dragging = false;
       let lastX = 0;
@@ -148,7 +178,7 @@ export const GameCanvas = forwardRef<
             cameraRef.current.y = cy - pinchWorldCenter.y * nextZoom;
             pinchDistance = nextDistance;
             drawVisible();
-            onZoomChange?.(cameraRef.current.zoom);
+            onZoomChangeRef.current?.(cameraRef.current.zoom);
           }
           return;
         }
@@ -160,7 +190,7 @@ export const GameCanvas = forwardRef<
         cameraRef.current.x += dx;
         cameraRef.current.y += dy;
         drawVisible();
-        onZoomChange?.(cameraRef.current.zoom);
+        onZoomChangeRef.current?.(cameraRef.current.zoom);
       };
 
       const onPointerUp = (event: PointerEvent) => {
@@ -186,7 +216,7 @@ export const GameCanvas = forwardRef<
         cameraRef.current.y = pointerY - worldY * nextZoom;
 
         drawVisible();
-        onZoomChange?.(cameraRef.current.zoom);
+        onZoomChangeRef.current?.(cameraRef.current.zoom);
       };
 
       const onClick = async (event: MouseEvent) => {
@@ -242,9 +272,9 @@ export const GameCanvas = forwardRef<
 
       const onResize = () => {
         if (!host) return;
-        if (!overlay && !focusedIdRef.current) centerContent(host.clientWidth, host.clientHeight);
+        if (!overlayRef.current && !focusedIdRef.current) centerContent(host.clientWidth, host.clientHeight);
         drawVisible();
-        onZoomChange?.(cameraRef.current.zoom);
+        onZoomChangeRef.current?.(cameraRef.current.zoom);
       };
 
       host.addEventListener("pointerdown", onPointerDown);
@@ -265,14 +295,21 @@ export const GameCanvas = forwardRef<
           cameraRef.current.x = animation.from.x + (animation.to.x - animation.from.x) * eased;
           cameraRef.current.y = animation.from.y + (animation.to.y - animation.from.y) * eased;
           drawVisible();
-          onZoomChange?.(cameraRef.current.zoom);
+          onZoomChangeRef.current?.(cameraRef.current.zoom);
           if (t >= 1) activeAnimationRef.current = null;
         }
-        if (overlay) {
-          const tile = tiles.find((value) => value.item.id === overlay.id);
+        if (overlayRef.current) {
+          const tile = tiles.find((value) => value.item.id === overlayRef.current?.id);
           if (tile && host) {
             const rect = tileToScreenRect(tile, cameraRef.current);
             setOverlay((prev) => (prev ? { ...prev, rect } : prev));
+          }
+        }
+        if (loadingIdsRef.current.size > 0) {
+          const now = performance.now();
+          for (const id of loadingIdsRef.current) {
+            const sprite = spritesRef.current.get(id);
+            if (sprite) sprite.alpha = loadingAlpha(now);
           }
         }
       };
@@ -308,15 +345,6 @@ export const GameCanvas = forwardRef<
       worldRef.current = null;
     };
 
-    function centerContent(width: number, height: number) {
-      const camera = cameraRef.current;
-      if (tiles.length < 30) {
-        camera.zoom = 1;
-        camera.x = width / 2 - (bounds.minX + bounds.maxX) / 2;
-        camera.y = height / 2 - (bounds.minY + bounds.maxY) / 2;
-      }
-    }
-
     async function drawVisible() {
       const app = appRef.current;
       const world = worldRef.current;
@@ -331,6 +359,8 @@ export const GameCanvas = forwardRef<
 
       for (const [id, sprite] of spritesRef.current.entries()) {
         if (!visibleSet.has(id)) {
+          const playSprite = (sprite as any).__play;
+          if (playSprite) world.removeChild(playSprite);
           world.removeChild(sprite);
           spritesRef.current.delete(id);
         }
@@ -355,23 +385,43 @@ export const GameCanvas = forwardRef<
           sprite.height = tile.h;
           spritesRef.current.set(tile.item.id, sprite);
           world.addChild(sprite);
-
-          const label = new TextCtor({
-            text: tile.item.type === "video" ? "▶" : "",
-            style: new TextStyleCtor({ fill: "#f8fafc", fontSize: 28 }),
-          });
-          label.anchor.set(0.5);
-          label.position.set(tile.w / 2, tile.h / 2);
-          sprite.addChild(label);
+          if (tile.item.type === "video") {
+            if (!playTextureRef.current) {
+              const svg = encodeURIComponent(
+                `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
+                  `<circle cx="32" cy="32" r="28" fill="rgba(15,23,42,0.75)"/>` +
+                  `<path d="M26 20l20 12-20 12z" fill="#f8fafc"/>` +
+                `</svg>`,
+              );
+              playTextureRef.current = TextureCtor.from(`data:image/svg+xml,${svg}`);
+            }
+            const playSprite = new SpriteCtor(playTextureRef.current);
+            playSprite.anchor.set(0.5);
+            world.addChild(playSprite);
+            (sprite as any).__play = playSprite;
+          }
         }
+        positionPlaySprite(sprite, tile);
 
         if (texture) {
           sprite.texture = texture;
-          sprite.alpha = isFullyVisible(tile, hostRect, cameraRef.current) ? 1 : 0.35;
+          sprite.x = tile.x;
+          sprite.y = tile.y;
+          sprite.width = tile.w;
+          sprite.height = tile.h;
+          positionPlaySprite(sprite, tile);
+          sprite.alpha = isMostlyVisible(tile, hostRect, cameraRef.current, 0.7) ? 1 : 0.35;
+          loadingIdsRef.current.delete(tile.item.id);
           continue;
         }
 
+        sprite.x = tile.x;
+        sprite.y = tile.y;
+        sprite.width = tile.w;
+        sprite.height = tile.h;
         sprite.tint = tile.item.type === "video" ? 0x1f2937 : 0x334155;
+        sprite.alpha = loadingAlpha(performance.now());
+        loadingIdsRef.current.add(tile.item.id);
         if (!urlRef.current.has(key)) {
           requests.push({
             id: tile.item.id,
@@ -400,7 +450,13 @@ export const GameCanvas = forwardRef<
         if (sprite && texture) {
           sprite.texture = texture;
           sprite.tint = 0xffffff;
-          sprite.alpha = isFullyVisible(tile, hostRect, cameraRef.current) ? 1 : 0.35;
+          sprite.x = tile.x;
+          sprite.y = tile.y;
+          sprite.width = tile.w;
+          sprite.height = tile.h;
+          positionPlaySprite(sprite, tile);
+          sprite.alpha = isMostlyVisible(tile, hostRect, cameraRef.current, 0.7) ? 1 : 0.35;
+          loadingIdsRef.current.delete(tile.item.id);
         }
       }
     }
@@ -408,7 +464,7 @@ export const GameCanvas = forwardRef<
     drawVisibleRef.current = () => {
       void drawVisible();
     };
-  }, [tiles, bounds]);
+  }, [tiles, bounds, centerContent]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-black">
@@ -443,7 +499,20 @@ export const GameCanvas = forwardRef<
       worldRef.current.scale.set(cameraRef.current.zoom);
     }
     drawVisibleRef.current();
-    onZoomChange?.(cameraRef.current.zoom);
+    onZoomChangeRef.current?.(cameraRef.current.zoom);
+  }
+
+  function resetView() {
+    const host = hostRef.current;
+    if (!host) return;
+    clearFocus();
+    centerContent(host.clientWidth, host.clientHeight);
+    if (worldRef.current) {
+      worldRef.current.position.set(cameraRef.current.x, cameraRef.current.y);
+      worldRef.current.scale.set(cameraRef.current.zoom);
+    }
+    drawVisibleRef.current();
+    onZoomChangeRef.current?.(cameraRef.current.zoom);
   }
 
   function focusOnTile(tile: Tile) {
@@ -481,7 +550,9 @@ function layoutTiles(items: GridMediaItem[]): Tile[] {
   for (const item of items) {
     const col = heights.indexOf(Math.min(...heights));
     const w = colWidth;
-    const h = Math.round(colWidth / clamp(item.aspect || 1, 0.5, 2));
+    const aspect = item.aspect ?? 1;
+    const safeAspect = aspect > 0 ? aspect : 1;
+    const h = Math.round(colWidth / safeAspect);
     const x = col * (colWidth + GAP);
     const y = heights[col];
 
@@ -531,11 +602,35 @@ function tileToScreenRect(tile: Tile, camera: Camera) {
   };
 }
 
-function isFullyVisible(tile: Tile, hostRect: DOMRect, camera: Camera) {
+function positionPlaySprite(sprite: any, tile: Tile) {
+  const playSprite = (sprite as any).__play;
+  if (!playSprite) return;
+  const size = Math.max(20, Math.min(tile.w, tile.h) * 0.28);
+  playSprite.width = size;
+  playSprite.height = size;
+  playSprite.position.set(tile.x + tile.w / 2, tile.y + tile.h / 2);
+}
+
+function isMostlyVisible(tile: Tile, hostRect: DOMRect, camera: Camera, threshold: number) {
   const rect = tileToScreenRect(tile, camera);
   const right = rect.left + rect.width;
   const bottom = rect.top + rect.height;
-  return rect.left >= 0 && rect.top >= 0 && right <= hostRect.width && bottom <= hostRect.height;
+  const left = Math.max(rect.left, 0);
+  const top = Math.max(rect.top, 0);
+  const clampedRight = Math.min(right, hostRect.width);
+  const clampedBottom = Math.min(bottom, hostRect.height);
+  const visibleWidth = Math.max(0, clampedRight - left);
+  const visibleHeight = Math.max(0, clampedBottom - top);
+  const visibleArea = visibleWidth * visibleHeight;
+  const area = rect.width * rect.height;
+  if (area <= 0) return false;
+  return visibleArea / area >= threshold;
+}
+
+function loadingAlpha(now: number) {
+  const phase = (now % 1200) / 1200;
+  const wave = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2);
+  return 0.45 + wave * 0.35;
 }
 
 function distanceToCenter(tile: Tile, width: number, height: number, camera: Camera) {

@@ -68,7 +68,7 @@ async function processImage(input: EnqueueInput) {
 
   const original = await fs.readFile(input.localPath);
   const { buffer: decodedBuffer, mime: decodedMime } = await decodeImageBuffer(original, input.extension, input.mime);
-  const originalMetadata = await sharp(decodedBuffer).metadata();
+  const originalMetadata = await sharp(decodedBuffer).rotate().metadata();
   const variants: Record<string, { r2Key: string; w: number; h: number; bytes: number; mime: string }> = {};
 
   for (let i = 0; i < IMAGE_LODS.length; i += 1) {
