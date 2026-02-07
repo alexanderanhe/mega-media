@@ -5,7 +5,16 @@ import { getMediaFacets, getMediaPages, getMe, login, logout } from "~/shared/cl
 import { Drawer } from "vaul";
 
 export default function IndexRoute() {
-  const [items, setItems] = useState<Array<{ id: string; type: "image" | "video"; aspect: number; status: "processing" | "ready" | "error" }>>([]);
+  const [items, setItems] = useState<Array<{
+    id: string;
+    type: "image" | "video";
+    aspect: number;
+    status: "processing" | "ready" | "error";
+    title?: string;
+    description?: string;
+    dateTaken?: string | null;
+    dateEffective?: string;
+  }>>([]);
   const [year, setYear] = useState("");
   const [month, setMonth] = useState("");
   const [fromDate, setFromDate] = useState("");
@@ -27,6 +36,7 @@ export default function IndexRoute() {
 
   const query = useMemo(() => {
     const q = new URLSearchParams({ page: "1", pageSize: "200" });
+    q.set("sort", "date_asc");
     if (fromDate) q.set("from", startOfDayIso(fromDate));
     if (toDate) q.set("to", endOfDayIso(toDate));
     if (typeFilter) q.set("type", typeFilter);
@@ -39,7 +49,18 @@ export default function IndexRoute() {
     setLoading(true);
     getMediaPages(query)
       .then((data) => {
-        setItems(data.items.map((item) => ({ id: item.id, type: item.type, aspect: item.aspect, status: item.status })));
+        setItems(
+          data.items.map((item) => ({
+            id: item.id,
+            type: item.type,
+            aspect: item.aspect,
+            status: item.status,
+            title: item.title,
+            description: item.description,
+            dateTaken: item.dateTaken ?? null,
+            dateEffective: item.dateEffective,
+          })),
+        );
       })
       .finally(() => setLoading(false));
   }, [query]);

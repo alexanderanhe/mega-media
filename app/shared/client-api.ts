@@ -4,6 +4,11 @@ export type MediaListItem = {
   id: string;
   type: "image" | "video";
   aspect: number;
+  width?: number | null;
+  height?: number | null;
+  title?: string;
+  description?: string;
+  dateTaken?: string | null;
   dateEffective: string;
   hasLocation: boolean;
   visibility: "PUBLIC" | "PRIVATE";
@@ -148,6 +153,8 @@ export function patchMedia(id: string, payload: {
   dateTaken?: string | null;
   placeName?: string | null;
   location?: { lat: number; lng: number; source: "manual" | "exif" | "none" } | null;
+  width?: number | null;
+  height?: number | null;
 }) {
   return request<{ ok: boolean }>(`/api/admin/media/${id}`, {
     method: "PATCH",

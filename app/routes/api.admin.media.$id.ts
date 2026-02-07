@@ -51,6 +51,12 @@ export const action = async ({ request, params }: { request: Request; params: { 
         patch.location = { ...(patch.location as Record<string, unknown>), placeName: body.placeName ?? undefined };
       }
     }
+    if (body.width !== undefined) {
+      patch.width = normalizeDimension(body.width);
+    }
+    if (body.height !== undefined) {
+      patch.height = normalizeDimension(body.height);
+    }
 
     Object.keys(patch).forEach((key) => {
       if (patch[key] === undefined) delete patch[key];
@@ -64,6 +70,20 @@ export const action = async ({ request, params }: { request: Request; params: { 
 
     if (patch.dateTaken !== undefined && patch.dateEffective === undefined) {
       patch.dateEffective = existing.createdAt;
+    }
+
+    if (patch.width !== undefined || patch.height !== undefined) {
+      const width =
+        patch.width !== undefined
+          ? (patch.width as number | null)
+          : existing.width ?? null;
+      const height =
+        patch.height !== undefined
+          ? (patch.height as number | null)
+          : existing.height ?? null;
+      if (width && height) {
+        patch.aspect = width / height;
+      }
     }
 
     await media.updateOne({ _id: new ObjectId(params.id) }, { $set: patch });
@@ -82,4 +102,11 @@ function normalizeTags(tags: string[]) {
     if (normalized) unique.add(normalized);
   }
   return Array.from(unique).slice(0, 30);
+}
+
+function normalizeDimension(value: number | null) {
+  if (value === null) return null;
+  if (!Number.isFinite(value)) return null;
+  if (value <= 0) return null;
+  return Math.round(value);
 }

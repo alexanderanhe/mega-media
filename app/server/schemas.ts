@@ -51,6 +51,8 @@ export const patchMediaSchema = z.object({
   category: z.string().max(64).nullable().optional(),
   dateTaken: z.string().datetime().nullable().optional(),
   placeName: z.string().max(256).nullable().optional(),
+  width: z.number().int().positive().nullable().optional(),
+  height: z.number().int().positive().nullable().optional(),
   location: z
     .object({
       lat: z.number(),

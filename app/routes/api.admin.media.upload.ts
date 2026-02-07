@@ -102,6 +102,8 @@ export const action = async ({ request }: { request: Request }) =>
         variants: {},
         poster: null,
         preview: null,
+        width: null,
+        height: null,
         aspect: 1,
         status: "processing",
       });

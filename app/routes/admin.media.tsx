@@ -16,6 +16,8 @@ export default function AdminMediaRoute() {
       id: string;
       type: "image" | "video";
       aspect: number;
+      width?: number | null;
+      height?: number | null;
       visibility: "PUBLIC" | "PRIVATE";
       dateEffective: string;
       status: string;
@@ -36,6 +38,8 @@ export default function AdminMediaRoute() {
     description: string;
     dateTaken: string;
     placeName: string;
+    width: string;
+    height: string;
     tags: string[];
     category: string;
   } | null>(null);
@@ -87,6 +91,8 @@ export default function AdminMediaRoute() {
           id: item.id,
           type: item.type,
           aspect: item.aspect,
+          width: item.width ?? null,
+          height: item.height ?? null,
           visibility: item.visibility,
           dateEffective: item.dateEffective,
           status: item.status,
@@ -223,6 +229,7 @@ export default function AdminMediaRoute() {
               <th>Media</th>
               <th>Format</th>
               <th>Aspect</th>
+              <th>Dimensions</th>
               <th>Duration</th>
               <th>Size</th>
               <th>Date</th>
@@ -237,6 +244,7 @@ export default function AdminMediaRoute() {
                     <td className="py-3"><div className="skeleton h-4 w-56" /></td>
                     <td><div className="skeleton h-4 w-16" /></td>
                     <td><div className="skeleton h-4 w-12" /></td>
+                    <td><div className="skeleton h-4 w-16" /></td>
                     <td><div className="skeleton h-4 w-20" /></td>
                     <td><div className="skeleton h-4 w-20" /></td>
                     <td><div className="skeleton h-4 w-28" /></td>
@@ -259,6 +267,7 @@ export default function AdminMediaRoute() {
                     </td>
                     <td className="text-xs uppercase text-slate-300">{item.type}</td>
                     <td className="text-xs text-slate-300">{formatAspect(item.aspect)}</td>
+                    <td className="text-xs text-slate-300">{formatDimensions(item.width, item.height)}</td>
                     <td className="text-xs text-slate-300">{item.type === "video" ? formatDuration(item.durationSeconds) : "-"}</td>
                     <td className="text-xs text-slate-300">{formatBytes(item.sizeBytes ?? 0)}</td>
                     <td className="text-sm text-slate-300">{new Date(item.dateEffective).toLocaleDateString()}</td>
@@ -281,6 +290,8 @@ export default function AdminMediaRoute() {
                             description: item.description ?? "",
                             dateTaken: item.dateTaken ? toLocalInputValue(new Date(item.dateTaken)) : "",
                             placeName: item.placeName ?? "",
+                            width: item.width ? String(item.width) : "",
+                            height: item.height ? String(item.height) : "",
                             tags: item.tags ?? [],
                             category: item.category ?? "",
                           });
@@ -314,6 +325,8 @@ export default function AdminMediaRoute() {
                 onSave={async (next) => {
                   setSaving(true);
                   try {
+                    const width = parseDimensionInput(next.width);
+                    const height = parseDimensionInput(next.height);
                     await patchMedia(next.id, {
                       title: next.title.trim() || "Untitled",
                       description: next.description,
@@ -321,6 +334,8 @@ export default function AdminMediaRoute() {
                       category: next.category ? next.category.trim() : null,
                       dateTaken: next.dateTaken ? new Date(next.dateTaken).toISOString() : null,
                       placeName: next.placeName.trim() || null,
+                      width,
+                      height,
                     });
                     setItems((prev) =>
                       prev.map((item) =>
@@ -333,6 +348,9 @@ export default function AdminMediaRoute() {
                               placeName: next.placeName.trim() || null,
                               tags: next.tags,
                               category: next.category.trim() || null,
+                              width,
+                              height,
+                              aspect: resolveAspect(width, height, item.aspect),
                             }
                           : item,
                       ),
@@ -640,12 +658,29 @@ function formatAspect(aspect?: number | null) {
   return aspect.toFixed(2);
 }
 
+function formatDimensions(width?: number | null, height?: number | null) {
+  if (!width || !height) return "-";
+  return `${width}×${height}`;
+}
+
 function formatDuration(value?: number | null) {
   if (!value || value <= 0) return "-";
   const minutes = Math.floor(value / 60);
   const seconds = Math.round(value % 60);
   if (minutes > 0) return `${minutes}:${String(seconds).padStart(2, "0")}`;
   return `${seconds}s`;
+}
+
+function parseDimensionInput(value: string) {
+  if (!value.trim()) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function resolveAspect(width: number | null, height: number | null, fallback: number) {
+  if (width && height) return width / height;
+  return fallback;
 }
 
 function VisibilityToggle({
@@ -694,13 +729,33 @@ function EditDrawerContent({
   onSave,
   onDelete,
 }: {
-  value: { id: string; title: string; description: string; dateTaken: string; placeName: string; tags: string[]; category: string };
+  value: {
+    id: string;
+    title: string;
+    description: string;
+    dateTaken: string;
+    placeName: string;
+    width: string;
+    height: string;
+    tags: string[];
+    category: string;
+  };
   saving: boolean;
   deleting: boolean;
   tagOptions: string[];
   categoryOptions: string[];
   onCancel: () => void;
-  onSave: (next: { id: string; title: string; description: string; dateTaken: string; placeName: string; tags: string[]; category: string }) => void;
+  onSave: (next: {
+    id: string;
+    title: string;
+    description: string;
+    dateTaken: string;
+    placeName: string;
+    width: string;
+    height: string;
+    tags: string[];
+    category: string;
+  }) => void;
   onDelete: (id: string) => void;
 }) {
   const [form, setForm] = useState(value);
@@ -742,6 +797,25 @@ function EditDrawerContent({
           onChange={(event) => setForm({ ...form, placeName: event.target.value })}
           className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
         />
+        <label className="block text-sm text-slate-300">Dimensions (px)</label>
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="number"
+            min={1}
+            placeholder="Width"
+            value={form.width}
+            onChange={(event) => setForm({ ...form, width: event.target.value })}
+            className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
+          />
+          <input
+            type="number"
+            min={1}
+            placeholder="Height"
+            value={form.height}
+            onChange={(event) => setForm({ ...form, height: event.target.value })}
+            className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
+          />
+        </div>
         <label className="block text-sm text-slate-300">Category</label>
         <input
           list="edit-category-options"

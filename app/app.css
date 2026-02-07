@@ -14,6 +14,10 @@ body {
   color: #e2e8f0;
 }
 
+.font-poppins {
+  font-family: "Poppins", "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
 /* Darken common UI surfaces to near-black */
 .bg-slate-900 {
   background-color: #050505 !important;

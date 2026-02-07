@@ -55,6 +55,11 @@ async function processQueue() {
 
 async function processImage(input: EnqueueInput) {
   const { media } = await getCollections();
+  const existing = await media.findOne(
+    { _id: new ObjectId(input.mediaId) },
+    { projection: { createdAt: 1 } },
+  );
+  const createdAt = existing?.createdAt ?? new Date();
   let parsed: any = null;
   try {
     parsed = await exifr.parse(input.localPath, {
@@ -98,13 +103,15 @@ async function processImage(input: EnqueueInput) {
   const lat = normalizeNumber(parsed?.latitude ?? parsed?.lat);
   const lng = normalizeNumber(parsed?.longitude ?? parsed?.lon);
 
+  const { width, height } = resolveDimensionsFromVariants(variants, null, oriented);
+
   await media.updateOne(
     { _id: new ObjectId(input.mediaId) },
     {
       $set: {
         variants,
         dateTaken,
-        dateEffective: dateTaken ?? new Date(),
+        dateEffective: dateTaken ?? createdAt,
         location:
           lat !== null && lng !== null
             ? { lat, lng, source: "exif", placeName: input.placeName || undefined }
@@ -115,7 +122,9 @@ async function processImage(input: EnqueueInput) {
         poster: null,
         preview: null,
         type: "image",
-        aspect: oriented.width && oriented.height ? oriented.width / oriented.height : 1,
+        width,
+        height,
+        aspect: width && height ? width / height : 1,
       },
       $unset: {
         errorMessage: "",
@@ -126,6 +135,11 @@ async function processImage(input: EnqueueInput) {
 
 async function processVideo(input: EnqueueInput) {
   const { media } = await getCollections();
+  const existing = await media.findOne(
+    { _id: new ObjectId(input.mediaId) },
+    { projection: { createdAt: 1 } },
+  );
+  const createdAt = existing?.createdAt ?? new Date();
 
   const probe = await ffprobeSafe(input.localPath);
   const creationTime = probe.tags?.creation_time ? new Date(probe.tags.creation_time) : null;
@@ -168,6 +182,8 @@ async function processVideo(input: EnqueueInput) {
 
   const dateTaken = input.manualDateTaken ?? normalizeDate(creationTime);
 
+  const { width, height } = resolveDimensionsFromVariants(variants, posterMeta, probe);
+
   await media.updateOne(
     { _id: new ObjectId(input.mediaId) },
     {
@@ -181,11 +197,13 @@ async function processVideo(input: EnqueueInput) {
         },
         preview,
         dateTaken,
-        dateEffective: dateTaken ?? new Date(),
+        dateEffective: dateTaken ?? createdAt,
         location: input.placeName ? { lat: 0, lng: 0, source: "manual", placeName: input.placeName } : null,
         status: "ready",
         type: "video",
-        aspect: posterMeta.width && posterMeta.height ? posterMeta.width / posterMeta.height : 16 / 9,
+        width,
+        height,
+        aspect: width && height ? width / height : posterMeta.width && posterMeta.height ? posterMeta.width / posterMeta.height : 16 / 9,
       },
       $unset: {
         errorMessage: "",
@@ -210,15 +228,18 @@ async function failMedia(mediaId: string, message: string) {
 }
 
 function ffprobeSafe(filePath: string) {
-  return new Promise<{ duration?: number; tags?: Record<string, string> }>((resolve) => {
+  return new Promise<{ duration?: number; tags?: Record<string, string>; width?: number; height?: number }>((resolve) => {
     ffmpeg.ffprobe(filePath, (error: Error | undefined, metadata: ffmpeg.FfprobeData) => {
       if (error) {
         resolve({});
         return;
       }
+      const videoStream = metadata.streams?.find((stream) => stream.codec_type === "video");
       resolve({
         duration: metadata.format?.duration,
         tags: metadata.format?.tags as Record<string, string> | undefined,
+        width: videoStream?.width,
+        height: videoStream?.height,
       });
     });
   });
@@ -260,6 +281,34 @@ function normalizeNumber(value: unknown) {
   if (typeof value !== "number") return null;
   if (!Number.isFinite(value)) return null;
   return value;
+}
+
+function normalizeDimension(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "number") return null;
+  if (!Number.isFinite(value)) return null;
+  if (value <= 0) return null;
+  return Math.round(value);
+}
+
+function resolveDimensionsFromVariants(
+  variants: Record<string, { w: number; h: number }> | undefined,
+  poster: { width?: number; height?: number } | null,
+  fallback: { width?: number | null; height?: number | null } | null,
+) {
+  const order = ["lod2", "lod3", "lod4", "lod1", "lod0"];
+  for (const key of order) {
+    const variant = variants?.[key];
+    const width = normalizeDimension(variant?.w);
+    const height = normalizeDimension(variant?.h);
+    if (width && height) return { width, height };
+  }
+  const posterWidth = normalizeDimension(poster?.width ?? null);
+  const posterHeight = normalizeDimension(poster?.height ?? null);
+  if (posterWidth && posterHeight) return { width: posterWidth, height: posterHeight };
+  const fallbackWidth = normalizeDimension(fallback?.width ?? null);
+  const fallbackHeight = normalizeDimension(fallback?.height ?? null);
+  return { width: fallbackWidth, height: fallbackHeight };
 }
 
 function normalizeOrientation(value: unknown) {

@@ -50,6 +50,8 @@ export const loader = async ({ request }: { request: Request }) =>
           dateEffective: 1,
           location: 1,
           aspect: 1,
+          width: 1,
+          height: 1,
           variants: 1,
           poster: 1,
           preview: 1,
@@ -65,16 +67,18 @@ export const loader = async ({ request }: { request: Request }) =>
       items: items.map((item) => ({
         id: item._id.toString(),
         type: item.type,
-        aspect: item.aspect || pickAspect(item),
+        aspect: pickAspect(item),
+        width: auth ? (item.width ?? null) : undefined,
+        height: auth ? (item.height ?? null) : undefined,
         dateEffective: item.dateEffective,
         hasLocation: Boolean(item.location),
         visibility: item.visibility,
         status: item.status,
         errorMessage: auth ? (item.errorMessage ?? null) : null,
-        title: auth ? (item.title ?? "") : undefined,
-        description: auth ? (item.description ?? "") : undefined,
+        title: item.title ?? "",
+        description: item.description ?? "",
         placeName: auth ? (item.location?.placeName ?? "") : undefined,
-        dateTaken: auth ? (item.dateTaken ?? null) : undefined,
+        dateTaken: item.dateTaken ?? null,
         tags: auth ? (item.tags ?? []) : undefined,
         category: auth ? (item.category ?? null) : undefined,
         sizeBytes: auth ? pickSize(item) : undefined,
@@ -117,7 +121,15 @@ function normalizeToken(value: string) {
   return value.trim().toLowerCase();
 }
 
-function pickAspect(item: { variants?: Record<string, { w: number; h: number }>; poster?: { w: number; h: number } | null }) {
+function pickAspect(item: {
+  width?: number | null;
+  height?: number | null;
+  aspect?: number;
+  variants?: Record<string, { w: number; h: number }>;
+  poster?: { w: number; h: number } | null;
+}) {
+  if (item.width && item.height) return item.width / item.height;
+  if (item.aspect && Number.isFinite(item.aspect)) return item.aspect;
   const lod2 = item.variants?.lod2;
   if (lod2?.w && lod2?.h) return lod2.w / lod2.h;
   if (item.poster?.w && item.poster?.h) return item.poster.w / item.poster.h;

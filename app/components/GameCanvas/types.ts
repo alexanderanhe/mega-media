@@ -3,6 +3,10 @@ export type GridMediaItem = {
   type: "image" | "video";
   aspect: number;
   status: "processing" | "ready" | "error";
+  title?: string;
+  description?: string;
+  dateTaken?: string | null;
+  dateEffective?: string;
 };
 
 export type Tile = {
