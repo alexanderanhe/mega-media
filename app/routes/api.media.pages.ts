@@ -82,6 +82,7 @@ export const loader = async ({ request }: { request: Request }) =>
         tags: auth ? (item.tags ?? []) : undefined,
         category: auth ? (item.category ?? null) : undefined,
         sizeBytes: auth ? pickSize(item) : undefined,
+        variantSizes: auth ? pickVariantSizes(item) : undefined,
         durationSeconds: auth ? (item.preview?.duration ?? null) : null,
       })),
     });
@@ -160,4 +161,13 @@ function pickSize(item: { variants?: Record<string, { bytes: number }>; r2KeyOri
   const lod3 = item.variants?.lod3;
   if (lod3?.bytes) return lod3.bytes;
   return null;
+}
+
+function pickVariantSizes(item: { variants?: Record<string, { bytes: number }> }) {
+  if (!item.variants) return null;
+  const sizes: Record<string, number> = {};
+  for (const [key, value] of Object.entries(item.variants)) {
+    if (value?.bytes) sizes[key] = value.bytes;
+  }
+  return Object.keys(sizes).length ? sizes : null;
 }

@@ -8,6 +8,7 @@ import { ObjectId, getCollections } from "./db";
 import { uploadBufferToR2 } from "./r2";
 
 const IMAGE_LODS = [64, 128, 256, 512, 1024] as const;
+const PREVIEW_SECONDS = clampNumber(Number(process.env.VIDEO_PREVIEW_SECONDS ?? 10), 2, 60);
 
 type EnqueueInput = {
   mediaId: string;
@@ -171,12 +172,16 @@ async function processVideo(input: EnqueueInput) {
 
   let preview: { r2Key: string; mime: string; duration?: number } | null = null;
   const previewPath = path.join(os.tmpdir(), `${input.mediaId}-preview.mp4`);
-  const previewOk = await generatePreview(input.localPath, previewPath);
+  const previewOk = await generatePreview(input.localPath, previewPath, PREVIEW_SECONDS);
   if (previewOk) {
     const previewBuffer = await fs.readFile(previewPath);
     const previewKey = `media/${input.mediaId}/preview.mp4`;
     await uploadBufferToR2({ key: previewKey, body: previewBuffer, contentType: "video/mp4" });
-    preview = { r2Key: previewKey, mime: "video/mp4", duration: Math.min(probe.duration ?? 0, 6) || undefined };
+    preview = {
+      r2Key: previewKey,
+      mime: "video/mp4",
+      duration: Math.min(probe.duration ?? 0, PREVIEW_SECONDS) || undefined,
+    };
     await fs.unlink(previewPath).catch(() => undefined);
   }
 
@@ -257,10 +262,10 @@ function generatePoster(videoPath: string, outputPath: string) {
   });
 }
 
-function generatePreview(videoPath: string, outputPath: string) {
+function generatePreview(videoPath: string, outputPath: string, seconds: number) {
   return new Promise<boolean>((resolve) => {
     ffmpeg(videoPath)
-      .outputOptions(["-t 6", "-movflags +faststart"])
+      .outputOptions([`-t ${seconds}`, "-movflags +faststart"])
       .videoCodec("libx264")
       .audioCodec("aac")
       .size("640x?")
@@ -269,6 +274,11 @@ function generatePreview(videoPath: string, outputPath: string) {
       .on("error", () => resolve(false))
       .run();
   });
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
 }
 
 function normalizeDate(value: unknown) {

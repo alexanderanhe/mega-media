@@ -60,23 +60,39 @@ export const action = async ({ request }: { request: Request }) =>
       throw new ApiError(413, "File exceeds 500MB limit");
     }
 
-    const id = new ObjectId();
-    const extension = extensionFromFile(file.name, file.type, type);
-    const originalKey = `media/${id.toString()}/original.${extension}`;
-
     const bytes = Buffer.from(await file.arrayBuffer());
     const fileHash = createHash("sha256").update(bytes).digest("hex");
-
-    const tmpPath = path.join(os.tmpdir(), `${id.toString()}-original.${extension}`);
-    await fs.writeFile(tmpPath, bytes);
 
     const now = new Date();
     const { media } = await getCollections();
     const existing = await media.findOne({ fileHash });
     if (existing) {
-      await fs.unlink(tmpPath).catch(() => undefined);
-      return jsonOk({ id: existing._id.toString(), status: existing.status, duplicate: true }, { status: 200 });
+      await media.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            visibility,
+            title,
+            description,
+            dateTaken: manualDateTaken,
+            dateEffective: manualDateTaken ?? existing.dateEffective ?? existing.createdAt,
+            location: hasCoords
+              ? { lat: lat as number, lng: lng as number, source: "exif", placeName }
+              : placeName
+                ? { lat: 0, lng: 0, source: "manual", placeName }
+                : null,
+          },
+        },
+      );
+      return jsonOk({ id: existing._id.toString(), status: existing.status, duplicate: true, replaced: true }, { status: 200 });
     }
+
+    const id = new ObjectId();
+    const extension = extensionFromFile(file.name, file.type, type);
+    const originalKey = `media/${id.toString()}/original.${extension}`;
+
+    const tmpPath = path.join(os.tmpdir(), `${id.toString()}-original.${extension}`);
+    await fs.writeFile(tmpPath, bytes);
 
     await uploadBufferToR2({ key: originalKey, body: bytes, contentType: file.type || fallbackMime(type) });
 

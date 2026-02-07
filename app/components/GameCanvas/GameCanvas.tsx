@@ -28,6 +28,7 @@ const MAX_ZOOM = 15;
 const HIGH_ZOOM_RESET = 2.2;
 const AUTO_INFO_ZOOM = 2.0;
 const AUTO_INFO_VISIBLE = 0.12;
+const MAX_INFO_ZOOM = 6.0;
 
 export type GameCanvasHandle = {
   zoomIn: () => void;
@@ -286,7 +287,7 @@ export const GameCanvas = forwardRef<
         }
 
         if (focusedIdRef.current === tile.item.id) {
-          clearFocus();
+          resetView();
           return;
         }
 
@@ -783,20 +784,20 @@ function ensureInfoOverlay(sprite: any, TextCtor: any, GraphicsCtor: any, Contai
   const bg = new GraphicsCtor();
   const title = new TextCtor("", {
     fontFamily: "\"Poppins\", \"Space Grotesk\", \"Inter\", sans-serif",
-    fontSize: 16,
+    fontSize: 14,
     fill: 0xffffff,
     fontWeight: "600",
     wordWrap: true,
   });
   const desc = new TextCtor("", {
     fontFamily: "\"Poppins\", \"Space Grotesk\", \"Inter\", sans-serif",
-    fontSize: 12,
+    fontSize: 10,
     fill: 0xe2e8f0,
     wordWrap: true,
   });
   const date = new TextCtor("", {
     fontFamily: "\"Poppins\", \"Space Grotesk\", \"Inter\", sans-serif",
-    fontSize: 10,
+    fontSize: 9,
     fill: 0xcbd5f5,
     wordWrap: false,
   });
@@ -829,12 +830,14 @@ function updateInfoOverlay({
   const overlay = ensureInfoOverlay(sprite, TextCtor, GraphicsCtor, ContainerCtor);
   if (!overlay) return;
   const isFocused = (sprite as any).__focused === true;
+  const withinZoomRange = camera.zoom <= MAX_INFO_ZOOM;
   const showAuto =
     !isFocused &&
+    withinZoomRange &&
     camera.zoom >= AUTO_INFO_ZOOM &&
     visibleRatio(tile, hostRect, camera) >= AUTO_INFO_VISIBLE;
 
-  if (!isFocused && !showAuto) {
+  if (!withinZoomRange || (!isFocused && !showAuto)) {
     overlay.group.visible = false;
     return;
   }
@@ -852,9 +855,9 @@ function updateInfoOverlay({
   const paddingY = isFocused ? 8 : 6;
   const maxWidth = Math.max(60, tile.w - paddingX * 2);
 
-  overlay.title.style.fontSize = isFocused ? 14 : 10;
-  overlay.desc.style.fontSize = isFocused ? 11 : 9;
-  overlay.date.style.fontSize = isFocused ? 9 : 8;
+  overlay.title.style.fontSize = isFocused ? 13 : 9;
+  overlay.desc.style.fontSize = isFocused ? 10 : 8;
+  overlay.date.style.fontSize = isFocused ? 8 : 7;
 
   overlay.title.style.wordWrapWidth = maxWidth;
   overlay.desc.style.wordWrapWidth = maxWidth;
@@ -947,5 +950,9 @@ function formatDateLabel(item: GridMediaItem) {
   if (!value) return "Fecha desconocida";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Fecha desconocida";
-  return date.toLocaleDateString();
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
 }

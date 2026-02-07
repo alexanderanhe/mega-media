@@ -27,6 +27,7 @@ export default function AdminMediaRoute() {
       placeName?: string | null;
       dateTaken?: string | null;
       sizeBytes?: number | null;
+      variantSizes?: Record<string, number> | null;
       durationSeconds?: number | null;
       tags?: string[];
       category?: string | null;
@@ -47,9 +48,6 @@ export default function AdminMediaRoute() {
   const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
-  const [uploadWarning, setUploadWarning] = useState<string | null>(null);
   const [uploads, setUploads] = useState<
     Array<{
       key: string;
@@ -76,6 +74,14 @@ export default function AdminMediaRoute() {
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string | null>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [sizeDetails, setSizeDetails] = useState<{
+    id: string;
+    title?: string;
+    variantSizes: Record<string, number>;
+  } | null>(null);
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; tone: "success" | "warning" | "error" }>>(
+    [],
+  );
 
   const refresh = () => {
     setLoading(true);
@@ -103,6 +109,7 @@ export default function AdminMediaRoute() {
         placeName: item.placeName ?? null,
         dateTaken: item.dateTaken ?? null,
         sizeBytes: item.sizeBytes ?? null,
+        variantSizes: item.variantSizes ?? null,
         durationSeconds: item.durationSeconds ?? null,
         tags: item.tags ?? [],
         category: item.category ?? null,
@@ -112,6 +119,14 @@ export default function AdminMediaRoute() {
       setLoading(false);
     });
   };
+
+  function pushToast(message: string, tone: "success" | "warning" | "error") {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((prev) => [...prev, { id, message, tone }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, 4000);
+  }
 
   useEffect(() => {
     refresh();
@@ -196,9 +211,22 @@ export default function AdminMediaRoute() {
         </div>
       </div>
       {uploading ? <p className="text-sm text-slate-300">Uploading...</p> : null}
-      {uploadWarning ? <p className="text-sm text-amber-300">{uploadWarning}</p> : null}
-      {uploadMessage ? <p className="text-sm text-emerald-400">{uploadMessage}</p> : null}
-      {uploadError ? <p className="text-sm text-rose-300">{uploadError}</p> : null}
+      <div className="pointer-events-none fixed bottom-6 right-6 z-50 flex w-[320px] flex-col gap-2">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`rounded-lg border px-3 py-2 text-sm shadow-lg ${
+              toast.tone === "success"
+                ? "border-emerald-400/40 bg-emerald-900/80 text-emerald-100"
+                : toast.tone === "warning"
+                  ? "border-amber-400/40 bg-amber-900/80 text-amber-100"
+                  : "border-rose-400/40 bg-rose-900/80 text-rose-100"
+            }`}
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
       {uploads.length ? (
         <div className="overflow-x-auto rounded-xl border border-white/10 bg-slate-900 p-4">
           <h3 className="mb-3 text-sm font-semibold text-slate-200">Upload progress</h3>
@@ -236,6 +264,7 @@ export default function AdminMediaRoute() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-slate-400">
+              <th>Visibility</th>
               <th>Media</th>
               <th>Format</th>
               <th>Aspect</th>
@@ -243,7 +272,6 @@ export default function AdminMediaRoute() {
               <th>Duration</th>
               <th>Size</th>
               <th>Date</th>
-              <th>Visibility</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -251,6 +279,7 @@ export default function AdminMediaRoute() {
             {loading
               ? Array.from({ length: 6 }).map((_, idx) => (
                   <tr key={`skeleton-${idx}`} className="border-t border-white/10">
+                    <td><div className="skeleton h-4 w-16" /></td>
                     <td className="py-3"><div className="skeleton h-4 w-56" /></td>
                     <td><div className="skeleton h-4 w-16" /></td>
                     <td><div className="skeleton h-4 w-12" /></td>
@@ -258,12 +287,19 @@ export default function AdminMediaRoute() {
                     <td><div className="skeleton h-4 w-20" /></td>
                     <td><div className="skeleton h-4 w-20" /></td>
                     <td><div className="skeleton h-4 w-28" /></td>
-                    <td><div className="skeleton h-4 w-16" /></td>
                     <td><div className="skeleton h-8 w-8" /></td>
                   </tr>
                 ))
               : items.map((item) => (
                   <tr key={item.id} className="border-t border-white/10">
+                    <td>
+                      <VisibilityToggle
+                        checked={item.visibility === "PUBLIC"}
+                        disabled={patchingIds.has(item.id) || item.status !== "ready"}
+                        compact
+                        onChange={() => toggleVisibility(item.id)}
+                      />
+                    </td>
                     <td className="py-2">
                       <div className="flex items-center gap-3">
                         <div className="h-12 w-12 overflow-hidden rounded-lg bg-black/40">
@@ -284,16 +320,27 @@ export default function AdminMediaRoute() {
                     <td className="text-xs text-slate-300">{formatAspect(item.aspect)}</td>
                     <td className="text-xs text-slate-300">{formatDimensions(item.width, item.height)}</td>
                     <td className="text-xs text-slate-300">{item.type === "video" ? formatDuration(item.durationSeconds) : "-"}</td>
-                    <td className="text-xs text-slate-300">{formatBytes(item.sizeBytes ?? 0)}</td>
-                    <td className="text-sm text-slate-300">{new Date(item.dateEffective).toLocaleDateString()}</td>
-                    <td>
-                      <VisibilityToggle
-                        checked={item.visibility === "PUBLIC"}
-                        disabled={patchingIds.has(item.id) || item.status !== "ready"}
-                        compact
-                        onChange={() => toggleVisibility(item.id)}
-                      />
+                    <td className="text-xs text-slate-300">
+                      <div className="flex flex-col items-start gap-1">
+                        <span>{formatBytes(item.sizeBytes ?? 0)}</span>
+                        {item.variantSizes ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSizeDetails({
+                                id: item.id,
+                                title: item.title ?? "Untitled",
+                                variantSizes: item.variantSizes ?? {},
+                              })
+                            }
+                            className="text-xs text-cyan-300 hover:text-cyan-200"
+                          >
+                            Details
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
+                    <td className="text-sm text-slate-300">{new Date(item.dateEffective).toLocaleDateString()}</td>
                     <td>
                       <button
                         type="button"
@@ -398,6 +445,36 @@ export default function AdminMediaRoute() {
                 }}
                 onCancel={() => setEditing(null)}
               />
+            ) : null}
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
+      <Drawer.Root open={Boolean(sizeDetails)} onOpenChange={(open) => !open && setSizeDetails(null)} direction="right">
+        <Drawer.Portal>
+          <Drawer.Overlay className="fixed inset-0 z-40 bg-black/70" />
+          <Drawer.Content className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-white/10 bg-black/95 p-6 text-slate-100 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <Drawer.Title className="text-lg font-semibold">Variant sizes</Drawer.Title>
+              <button type="button" onClick={() => setSizeDetails(null)} className="text-slate-400 hover:text-white">
+                Close
+              </button>
+            </div>
+            {sizeDetails ? (
+              <div className="space-y-4">
+                <div className="text-sm text-slate-300">{sizeDetails.title ?? "Untitled"}</div>
+                <div className="rounded-xl border border-white/10">
+                  <div className="grid grid-cols-2 gap-y-2 px-4 py-3 text-sm">
+                    {Object.entries(sizeDetails.variantSizes)
+                      .sort((a, b) => a[0].localeCompare(b[0]))
+                      .map(([key, bytes]) => (
+                        <div key={key} className="flex items-center justify-between gap-4">
+                          <span className="text-slate-400">{key.toUpperCase()}</span>
+                          <span className="text-slate-100">{formatBytes(bytes)}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
             ) : null}
           </Drawer.Content>
         </Drawer.Portal>
@@ -580,7 +657,7 @@ export default function AdminMediaRoute() {
       await patchMedia(id, { visibility: nextVisibility });
     } catch (err) {
       setItems((prev) => prev.map((item) => (item.id === id ? { ...item, visibility: current.visibility } : item)));
-      setUploadError(err instanceof Error ? err.message : "Update failed");
+      pushToast(err instanceof Error ? err.message : "Update failed", "error");
     } finally {
       setPatchingIds((prev) => {
         const next = new Set(prev);
@@ -591,14 +668,11 @@ export default function AdminMediaRoute() {
   }
 
   async function handleUpload(files: File[]) {
-    setUploadError(null);
-    setUploadMessage(null);
-    setUploadWarning(null);
     setUploading(true);
     try {
       const capped = files.slice(0, 20);
       if (files.length > 20) {
-        setUploadWarning("Max 20 files per batch. Extra files were skipped.");
+        pushToast("Max 20 files per batch. Extra files were skipped.", "warning");
       }
 
       const batch = capped.map((file) => ({
@@ -642,11 +716,11 @@ export default function AdminMediaRoute() {
       }
 
       if (successCount > 0) {
-        setUploadMessage(`Queued ${successCount} file(s) for processing`);
+        pushToast(`Queued ${successCount} file(s) for processing`, "success");
         refresh();
       }
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed");
+      pushToast(err instanceof Error ? err.message : "Upload failed", "error");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -811,8 +885,8 @@ function EditDrawerContent({
   const disable = saving || deleting;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="space-y-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-2">
         {previewUrl ? (
           <div className="overflow-hidden rounded-xl border border-white/10 bg-black/40">
             <img src={previewUrl} alt="" className="h-full w-full max-h-80 object-contain" />

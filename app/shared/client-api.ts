@@ -21,6 +21,7 @@ export type MediaListItem = {
   tags?: string[];
   category?: string | null;
   sizeBytes?: number | null;
+  variantSizes?: Record<string, number> | null;
   durationSeconds?: number | null;
 };
 
