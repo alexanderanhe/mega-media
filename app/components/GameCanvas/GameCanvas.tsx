@@ -13,8 +13,6 @@ type OverlayState = {
   rect: { left: number; top: number; width: number; height: number };
 };
 
-type FocusedRect = { left: number; top: number; width: number; height: number };
-
 type CameraAnimation = {
   start: number;
   duration: number;
@@ -26,8 +24,10 @@ const TILE_BASE = 180;
 const GAP = 12;
 const DEFAULT_SIDE_PADDING = 72;
 const MIN_ZOOM = 0.10;
-const MAX_ZOOM = 10;
+const MAX_ZOOM = 15;
 const HIGH_ZOOM_RESET = 2.2;
+const AUTO_INFO_ZOOM = 2.0;
+const AUTO_INFO_VISIBLE = 0.12;
 
 export type GameCanvasHandle = {
   zoomIn: () => void;
@@ -53,8 +53,6 @@ export const GameCanvas = forwardRef<
   const videoIconTextureRef = useRef<any>(null);
   const cameraRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
   const [overlay, setOverlay] = useState<OverlayState | null>(null);
-  const [focusedItem, setFocusedItem] = useState<GridMediaItem | null>(null);
-  const [focusedRect, setFocusedRect] = useState<FocusedRect | null>(null);
   const focusedIdRef = useRef<string | null>(null);
   const focusInterruptedRef = useRef(false);
   const drawVisibleRef = useRef<() => void>(() => undefined);
@@ -93,11 +91,9 @@ export const GameCanvas = forwardRef<
     const stillThere = items.find((item) => item.id === focusedIdRef.current);
     if (!stillThere) {
       clearFocus();
-      setFocusedItem(null);
-      return;
     }
-    setFocusedItem(stillThere);
   }, [items]);
+
 
   useEffect(() => {
     onZoomChangeRef.current = onZoomChange;
@@ -120,10 +116,11 @@ export const GameCanvas = forwardRef<
     if (!hostMaybe) return;
     const host: HTMLDivElement = hostMaybe;
 
-    let ApplicationCtor: any;
+  let ApplicationCtor: any;
   let ContainerCtor: any;
   let SpriteCtor: any;
   let GraphicsCtor: any;
+  let TextCtor: any;
   let TextureCtor: any;
   let AssetsModule: any;
     let app: any = null;
@@ -137,6 +134,7 @@ export const GameCanvas = forwardRef<
     ContainerCtor = pixi.Container;
     SpriteCtor = pixi.Sprite;
     GraphicsCtor = pixi.Graphics;
+    TextCtor = pixi.Text;
     TextureCtor = pixi.Texture;
     AssetsModule = pixi.Assets;
 
@@ -284,21 +282,15 @@ export const GameCanvas = forwardRef<
         const tile = hitTest(tiles, event.clientX, event.clientY, host.getBoundingClientRect(), cameraRef.current);
         if (!tile) {
           clearFocus();
-          setFocusedItem(null);
-          setFocusedRect(null);
           return;
         }
 
         if (focusedIdRef.current === tile.item.id) {
           clearFocus();
-          setFocusedItem(null);
-          setFocusedRect(null);
           return;
         }
 
         focusOnTile(tile);
-        setFocusedItem(tile.item);
-        setFocusedRect(tileToScreenRect(tile, cameraRef.current));
 
         if (tile.item.type === "video") {
           try {
@@ -350,13 +342,6 @@ export const GameCanvas = forwardRef<
           if (tile && host) {
             const rect = tileToScreenRect(tile, cameraRef.current);
             setOverlay((prev) => (prev ? { ...prev, rect } : prev));
-          }
-        }
-        if (focusedIdRef.current) {
-          const tile = tiles.find((value) => value.item.id === focusedIdRef.current);
-          if (tile && host) {
-            const rect = tileToScreenRect(tile, cameraRef.current);
-            setFocusedRect(rect);
           }
         }
         if (loadingIdsRef.current.size > 0) {
@@ -425,10 +410,8 @@ export const GameCanvas = forwardRef<
         if (!visibleSet.has(id)) {
           const playSprite = (sprite as any).__play;
           if (playSprite) world.removeChild(playSprite);
-          const border = (sprite as any).__border;
-          if (border) world.removeChild(border);
-          const icon = (sprite as any).__videoIcon;
-          if (icon) world.removeChild(icon);
+          const info = (sprite as any).__info;
+          if (info?.group) world.removeChild(info.group);
           world.removeChild(sprite);
           spritesRef.current.delete(id);
         }
@@ -452,6 +435,7 @@ export const GameCanvas = forwardRef<
           sprite.width = tile.w;
           sprite.height = tile.h;
           sprite.zIndex = 1;
+          sprite.sortableChildren = true;
           spritesRef.current.set(tile.item.id, sprite);
           world.addChild(sprite);
           if (tile.item.type === "video") {
@@ -480,17 +464,23 @@ export const GameCanvas = forwardRef<
             (sprite as any).__play = playSprite;
             const border = new GraphicsCtor();
             border.zIndex = 4;
-            world.addChild(border);
+            sprite.addChild(border);
             (sprite as any).__border = border;
             const icon = new SpriteCtor(videoIconTextureRef.current);
             icon.anchor.set(0, 0);
             icon.zIndex = 5;
-            world.addChild(icon);
+            sprite.addChild(icon);
             (sprite as any).__videoIcon = icon;
           }
         }
         positionPlaySprite(sprite, tile);
         positionVideoExtras(sprite, tile);
+        (sprite as any).__focused = focusedIdRef.current === tile.item.id;
+        const infoOverlay = ensureInfoOverlay(sprite, TextCtor, GraphicsCtor, ContainerCtor);
+        if (infoOverlay && !(sprite as any).__infoAdded) {
+          world.addChild(infoOverlay.group);
+          (sprite as any).__infoAdded = true;
+        }
 
         if (texture) {
           sprite.texture = texture;
@@ -501,6 +491,15 @@ export const GameCanvas = forwardRef<
           positionPlaySprite(sprite, tile);
           positionVideoExtras(sprite, tile);
           sprite.alpha = computeSpriteAlpha(tile, hostRect, cameraRef.current);
+          updateInfoOverlay({
+            sprite,
+            tile,
+            camera: cameraRef.current,
+            hostRect,
+            TextCtor,
+            GraphicsCtor,
+            ContainerCtor,
+          });
           const playSprite = (sprite as any).__play;
           if (playSprite) playSprite.alpha = sprite.alpha;
           const border = (sprite as any).__border;
@@ -518,6 +517,15 @@ export const GameCanvas = forwardRef<
         sprite.tint = tile.item.type === "video" ? 0x1f2937 : 0x334155;
         sprite.alpha = loadingAlpha(performance.now());
         positionVideoExtras(sprite, tile);
+        updateInfoOverlay({
+          sprite,
+          tile,
+          camera: cameraRef.current,
+          hostRect,
+          TextCtor,
+          GraphicsCtor,
+          ContainerCtor,
+        });
         loadingIdsRef.current.add(tile.item.id);
         if (!urlRef.current.has(key)) {
           requests.push({
@@ -554,6 +562,15 @@ export const GameCanvas = forwardRef<
           positionPlaySprite(sprite, tile);
           positionVideoExtras(sprite, tile);
           sprite.alpha = computeSpriteAlpha(tile, hostRect, cameraRef.current);
+          updateInfoOverlay({
+            sprite,
+            tile,
+            camera: cameraRef.current,
+            hostRect,
+            TextCtor,
+            GraphicsCtor,
+            ContainerCtor,
+          });
           const playSprite = (sprite as any).__play;
           if (playSprite) playSprite.alpha = sprite.alpha;
           const border = (sprite as any).__border;
@@ -581,29 +598,7 @@ export const GameCanvas = forwardRef<
           onClose={() => setOverlay(null)}
         />
       ) : null}
-      {focusedItem && focusedRect ? (
-        <div
-          className="pointer-events-none absolute z-30"
-          style={{
-            left: focusedRect.left,
-            top: focusedRect.top,
-            width: focusedRect.width,
-            height: focusedRect.height,
-          }}
-        >
-          <div className="absolute inset-x-0 bottom-0 rounded-b-2xl bg-gradient-to-t from-black/80 via-black/50 to-transparent px-5 pb-4 pt-10">
-            <div className="font-poppins text-lg font-semibold text-white">
-              {focusedItem.title?.trim() || "Untitled"}
-            </div>
-            {focusedItem.description ? (
-              <div className="font-poppins text-sm text-slate-200">{focusedItem.description}</div>
-            ) : null}
-            <div className="mt-2 font-poppins text-xs uppercase tracking-[0.18em] text-slate-300">
-              {formatDateLabel(focusedItem)}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {null}
     </div>
   );
 
@@ -669,8 +664,6 @@ export const GameCanvas = forwardRef<
   function clearFocus() {
     focusedIdRef.current = null;
     setOverlay(null);
-    setFocusedItem(null);
-    setFocusedRect(null);
     drawVisibleRef.current();
   }
 
@@ -768,8 +761,8 @@ function positionVideoExtras(sprite: any, tile: Tile) {
   const icon = (sprite as any).__videoIcon;
   if (!border && !icon) return;
   if (border) {
-    border.x = tile.x;
-    border.y = tile.y;
+    border.x = 0;
+    border.y = 0;
     border.clear();
     border.lineStyle({ width: 3, color: 0x38bdf8, alpha: 0.9 });
     border.drawRoundedRect(0, 0, tile.w, tile.h, 12);
@@ -778,8 +771,119 @@ function positionVideoExtras(sprite: any, tile: Tile) {
     const size = Math.max(14, Math.min(tile.w, tile.h) * 0.14);
     icon.width = size;
     icon.height = size;
-    icon.position.set(tile.x + 10, tile.y + 10);
+    icon.position.set(10, 10);
   }
+}
+
+function ensureInfoOverlay(sprite: any, TextCtor: any, GraphicsCtor: any, ContainerCtor: any) {
+  let overlay = (sprite as any).__info;
+  if (overlay) return overlay;
+  const group = new ContainerCtor();
+  group.zIndex = 6;
+  const bg = new GraphicsCtor();
+  const title = new TextCtor("", {
+    fontFamily: "\"Poppins\", \"Space Grotesk\", \"Inter\", sans-serif",
+    fontSize: 16,
+    fill: 0xffffff,
+    fontWeight: "600",
+    wordWrap: true,
+  });
+  const desc = new TextCtor("", {
+    fontFamily: "\"Poppins\", \"Space Grotesk\", \"Inter\", sans-serif",
+    fontSize: 12,
+    fill: 0xe2e8f0,
+    wordWrap: true,
+  });
+  const date = new TextCtor("", {
+    fontFamily: "\"Poppins\", \"Space Grotesk\", \"Inter\", sans-serif",
+    fontSize: 10,
+    fill: 0xcbd5f5,
+    wordWrap: false,
+  });
+  group.addChild(bg);
+  group.addChild(title);
+  group.addChild(desc);
+  group.addChild(date);
+  overlay = { group, bg, title, desc, date, mode: "none" };
+  (sprite as any).__info = overlay;
+  return overlay;
+}
+
+function updateInfoOverlay({
+  sprite,
+  tile,
+  camera,
+  hostRect,
+  TextCtor,
+  GraphicsCtor,
+  ContainerCtor,
+}: {
+  sprite: any;
+  tile: Tile;
+  camera: Camera;
+  hostRect: DOMRect;
+  TextCtor: any;
+  GraphicsCtor: any;
+  ContainerCtor: any;
+}) {
+  const overlay = ensureInfoOverlay(sprite, TextCtor, GraphicsCtor, ContainerCtor);
+  if (!overlay) return;
+  const isFocused = (sprite as any).__focused === true;
+  const showAuto =
+    !isFocused &&
+    camera.zoom >= AUTO_INFO_ZOOM &&
+    visibleRatio(tile, hostRect, camera) >= AUTO_INFO_VISIBLE;
+
+  if (!isFocused && !showAuto) {
+    overlay.group.visible = false;
+    return;
+  }
+
+  overlay.group.visible = true;
+  overlay.group.alpha = sprite.alpha ?? 1;
+  overlay.group.x = tile.x;
+  overlay.group.y = tile.y;
+
+  const titleText = tile.item.title?.trim() || "Untitled";
+  const descText = tile.item.description?.trim() || "";
+  const dateText = formatDateLabel(tile.item);
+
+  const paddingX = isFocused ? 12 : 10;
+  const paddingY = isFocused ? 8 : 6;
+  const maxWidth = Math.max(60, tile.w - paddingX * 2);
+
+  overlay.title.style.fontSize = isFocused ? 14 : 10;
+  overlay.desc.style.fontSize = isFocused ? 11 : 9;
+  overlay.date.style.fontSize = isFocused ? 9 : 8;
+
+  overlay.title.style.wordWrapWidth = maxWidth;
+  overlay.desc.style.wordWrapWidth = maxWidth;
+
+  overlay.title.text = titleText;
+  overlay.desc.text = descText;
+  overlay.date.text = dateText;
+
+  const titleH = overlay.title.height;
+  const descH = descText ? overlay.desc.height : 0;
+  const dateH = overlay.date.height;
+  const gap = descText ? (isFocused ? 4 : 3) : 0;
+  const dateGap = isFocused ? 4 : 3;
+  const totalHeight = paddingY + titleH + gap + descH + dateGap + dateH + paddingY;
+
+  const bg = overlay.bg;
+  bg.clear();
+  bg.beginFill(0x000000, isFocused ? 0.65 : 0.5);
+  bg.drawRect(0, tile.h - totalHeight, tile.w, totalHeight);
+  bg.endFill();
+
+  overlay.title.x = paddingX;
+  overlay.title.y = tile.h - totalHeight + paddingY;
+  if (descText) {
+    overlay.desc.x = paddingX;
+    overlay.desc.y = overlay.title.y + titleH + gap;
+  }
+  overlay.date.x = paddingX;
+  overlay.date.y = tile.h - paddingY - dateH;
 }
 
 function isMostlyVisible(tile: Tile, hostRect: DOMRect, camera: Camera, threshold: number) {
@@ -796,6 +900,22 @@ function isMostlyVisible(tile: Tile, hostRect: DOMRect, camera: Camera, threshol
   const area = rect.width * rect.height;
   if (area <= 0) return false;
   return visibleArea / area >= threshold;
+}
+
+function visibleRatio(tile: Tile, hostRect: DOMRect, camera: Camera) {
+  const rect = tileToScreenRect(tile, camera);
+  const right = rect.left + rect.width;
+  const bottom = rect.top + rect.height;
+  const left = Math.max(rect.left, 0);
+  const top = Math.max(rect.top, 0);
+  const clampedRight = Math.min(right, hostRect.width);
+  const clampedBottom = Math.min(bottom, hostRect.height);
+  const visibleWidth = Math.max(0, clampedRight - left);
+  const visibleHeight = Math.max(0, clampedBottom - top);
+  const visibleArea = visibleWidth * visibleHeight;
+  const area = rect.width * rect.height;
+  if (area <= 0) return 0;
+  return visibleArea / area;
 }
 
 function loadingAlpha(now: number) {

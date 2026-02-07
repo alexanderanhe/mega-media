@@ -3,7 +3,7 @@ import { FiFilter, FiImage, FiMoreHorizontal, FiUploadCloud, FiVideo } from "rea
 import { Drawer } from "vaul";
 import type { Route } from "./+types/admin.media";
 import { requireAdminPage } from "~/server/guards";
-import { getMediaCategories, getMediaPages, getMediaTags, patchMedia } from "~/shared/client-api";
+import { getBatchUrls, getMediaCategories, getMediaPages, getMediaTags, patchMedia } from "~/shared/client-api";
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdminPage(request);
@@ -74,6 +74,8 @@ export default function AdminMediaRoute() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [tagOptions, setTagOptions] = useState<string[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
+  const [thumbs, setThumbs] = useState<Record<string, string | null>>({});
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const refresh = () => {
     setLoading(true);
@@ -86,27 +88,27 @@ export default function AdminMediaRoute() {
     if (categoryFilter.trim()) query.set("category", categoryFilter.trim());
     if (sort) query.set("sort", sort);
     getMediaPages(query).then((res) => {
-      setItems(
-        res.items.map((item) => ({
-          id: item.id,
-          type: item.type,
-          aspect: item.aspect,
-          width: item.width ?? null,
-          height: item.height ?? null,
-          visibility: item.visibility,
-          dateEffective: item.dateEffective,
-          status: item.status,
-          errorMessage: item.errorMessage,
-          title: item.title,
-          description: item.description,
-          placeName: item.placeName ?? null,
-          dateTaken: item.dateTaken ?? null,
-          sizeBytes: item.sizeBytes ?? null,
-          durationSeconds: item.durationSeconds ?? null,
-          tags: item.tags ?? [],
-          category: item.category ?? null,
-        })),
-      );
+      const nextItems = res.items.map((item) => ({
+        id: item.id,
+        type: item.type,
+        aspect: item.aspect,
+        width: item.width ?? null,
+        height: item.height ?? null,
+        visibility: item.visibility,
+        dateEffective: item.dateEffective,
+        status: item.status,
+        errorMessage: item.errorMessage,
+        title: item.title,
+        description: item.description,
+        placeName: item.placeName ?? null,
+        dateTaken: item.dateTaken ?? null,
+        sizeBytes: item.sizeBytes ?? null,
+        durationSeconds: item.durationSeconds ?? null,
+        tags: item.tags ?? [],
+        category: item.category ?? null,
+      }));
+      setItems(nextItems);
+      void loadThumbnails(nextItems);
       setLoading(false);
     });
   };
@@ -118,6 +120,14 @@ export default function AdminMediaRoute() {
   useEffect(() => {
     void loadOptions();
   }, []);
+
+  useEffect(() => {
+    if (!editing?.id) {
+      setPreviewUrl(null);
+      return;
+    }
+    void loadPreview(editing.id);
+  }, [editing?.id]);
 
   useEffect(() => {
     const onDragEnter = (event: DragEvent) => {
@@ -256,6 +266,11 @@ export default function AdminMediaRoute() {
                   <tr key={item.id} className="border-t border-white/10">
                     <td className="py-2">
                       <div className="flex items-center gap-3">
+                        <div className="h-12 w-12 overflow-hidden rounded-lg bg-black/40">
+                          {thumbs[item.id] ? (
+                            <img src={thumbs[item.id] ?? undefined} alt="" className="h-full w-full object-cover" />
+                          ) : null}
+                        </div>
                         <span className={`flex h-9 w-9 items-center justify-center rounded-full ${statusColor(item.status)}`}>
                           {item.type === "image" ? <FiImage /> : <FiVideo />}
                         </span>
@@ -322,6 +337,7 @@ export default function AdminMediaRoute() {
                 deleting={deleting}
                 tagOptions={tagOptions}
                 categoryOptions={categoryOptions}
+                previewUrl={previewUrl}
                 onSave={async (next) => {
                   setSaving(true);
                   try {
@@ -530,6 +546,30 @@ export default function AdminMediaRoute() {
     }
   }
 
+  async function loadThumbnails(list: Array<{ id: string }>) {
+    if (!list.length) return;
+    try {
+      const requests = list.map((item) => ({ id: item.id, lod: 1 as const }));
+      const res = await getBatchUrls(requests);
+      const next: Record<string, string | null> = {};
+      for (const item of res.items) {
+        next[item.id] = item.url ?? null;
+      }
+      setThumbs((prev) => ({ ...prev, ...next }));
+    } catch {
+      // ignore
+    }
+  }
+
+  async function loadPreview(id: string) {
+    try {
+      const res = await getBatchUrls([{ id, lod: 3 }]);
+      setPreviewUrl(res.items[0]?.url ?? null);
+    } catch {
+      setPreviewUrl(null);
+    }
+  }
+
   async function toggleVisibility(id: string) {
     const current = items.find((item) => item.id === id);
     if (!current) return;
@@ -728,6 +768,7 @@ function EditDrawerContent({
   onCancel,
   onSave,
   onDelete,
+  previewUrl,
 }: {
   value: {
     id: string;
@@ -757,6 +798,7 @@ function EditDrawerContent({
     category: string;
   }) => void;
   onDelete: (id: string) => void;
+  previewUrl: string | null;
 }) {
   const [form, setForm] = useState(value);
   const [tagInput, setTagInput] = useState("");
@@ -771,6 +813,11 @@ function EditDrawerContent({
   return (
     <div className="flex h-full flex-col">
       <div className="space-y-3">
+        {previewUrl ? (
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-black/40">
+            <img src={previewUrl} alt="" className="h-full w-full max-h-80 object-contain" />
+          </div>
+        ) : null}
         <label className="block text-sm text-slate-300">Title</label>
         <input
           value={form.title}
