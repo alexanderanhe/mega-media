@@ -14,6 +14,7 @@ export type MediaListItem = {
   visibility: "PUBLIC" | "PRIVATE";
   status: "processing" | "ready" | "error";
   errorMessage?: string | null;
+  hidden?: boolean;
   title?: string;
   description?: string;
   placeName?: string;

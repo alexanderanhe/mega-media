@@ -254,7 +254,8 @@ export const GameCanvas = forwardRef<
       const onClick = async (event: MouseEvent) => {
         if (event.detail > 1) return;
         const tile = hitTest(tiles, event.clientX, event.clientY, host.getBoundingClientRect(), cameraRef.current);
-        if (!tile || tile.item.type !== "video") return;
+        if (!tile || tile.item.hidden) return;
+        if (tile.item.type !== "video") return;
         const pixelSize = tile.w * cameraRef.current.zoom;
         if (pixelSize < 140) return;
 
@@ -281,7 +282,7 @@ export const GameCanvas = forwardRef<
           return;
         }
         const tile = hitTest(tiles, event.clientX, event.clientY, host.getBoundingClientRect(), cameraRef.current);
-        if (!tile) {
+        if (!tile || tile.item.hidden) {
           clearFocus();
           return;
         }
@@ -476,6 +477,7 @@ export const GameCanvas = forwardRef<
         }
         positionPlaySprite(sprite, tile);
         positionVideoExtras(sprite, tile);
+        positionLockSprite(sprite, tile, tile.item.hidden === true, GraphicsCtor);
         (sprite as any).__focused = focusedIdRef.current === tile.item.id;
         const infoOverlay = ensureInfoOverlay(sprite, TextCtor, GraphicsCtor, ContainerCtor);
         if (infoOverlay && !(sprite as any).__infoAdded) {
@@ -483,7 +485,10 @@ export const GameCanvas = forwardRef<
           (sprite as any).__infoAdded = true;
         }
 
-        if (texture) {
+        if (tile.item.hidden) {
+          sprite.texture = TextureCtor.WHITE;
+          sprite.tint = 0x1f2937;
+        } else if (texture) {
           sprite.texture = texture;
           sprite.x = tile.x;
           sprite.y = tile.y;
@@ -491,6 +496,7 @@ export const GameCanvas = forwardRef<
           sprite.height = tile.h;
           positionPlaySprite(sprite, tile);
           positionVideoExtras(sprite, tile);
+          positionLockSprite(sprite, tile, false, GraphicsCtor);
           sprite.alpha = computeSpriteAlpha(tile, hostRect, cameraRef.current);
           updateInfoOverlay({
             sprite,
@@ -513,15 +519,16 @@ export const GameCanvas = forwardRef<
 
         sprite.x = tile.x;
         sprite.y = tile.y;
-        sprite.width = tile.w;
-        sprite.height = tile.h;
-        sprite.tint = tile.item.type === "video" ? 0x1f2937 : 0x334155;
-        sprite.alpha = loadingAlpha(performance.now());
-        positionVideoExtras(sprite, tile);
-        updateInfoOverlay({
-          sprite,
-          tile,
-          camera: cameraRef.current,
+          sprite.width = tile.w;
+          sprite.height = tile.h;
+          sprite.tint = tile.item.type === "video" ? 0x1f2937 : 0x334155;
+          sprite.alpha = loadingAlpha(performance.now());
+          positionVideoExtras(sprite, tile);
+          positionLockSprite(sprite, tile, tile.item.hidden === true, GraphicsCtor);
+          updateInfoOverlay({
+            sprite,
+            tile,
+            camera: cameraRef.current,
           hostRect,
           TextCtor,
           GraphicsCtor,
@@ -553,7 +560,11 @@ export const GameCanvas = forwardRef<
         const key = `${tile.item.id}:${lod}`;
         const texture = texturesRef.current.get(key);
         const sprite = spritesRef.current.get(tile.item.id);
-        if (sprite && texture) {
+        if (sprite && tile.item.hidden) {
+          sprite.texture = TextureCtor.WHITE;
+          sprite.tint = 0x1f2937;
+          positionLockSprite(sprite, tile, true, GraphicsCtor);
+        } else if (sprite && texture) {
           sprite.texture = texture;
           sprite.tint = 0xffffff;
           sprite.x = tile.x;
@@ -562,6 +573,7 @@ export const GameCanvas = forwardRef<
           sprite.height = tile.h;
           positionPlaySprite(sprite, tile);
           positionVideoExtras(sprite, tile);
+          positionLockSprite(sprite, tile, false, GraphicsCtor);
           sprite.alpha = computeSpriteAlpha(tile, hostRect, cameraRef.current);
           updateInfoOverlay({
             sprite,
@@ -578,6 +590,8 @@ export const GameCanvas = forwardRef<
           if (border) border.alpha = sprite.alpha;
           const icon = (sprite as any).__videoIcon;
           if (icon) icon.alpha = sprite.alpha;
+          const lock = (sprite as any).__lock;
+          if (lock) lock.alpha = sprite.alpha;
           loadingIdsRef.current.delete(tile.item.id);
         }
       }
@@ -776,6 +790,41 @@ function positionVideoExtras(sprite: any, tile: Tile) {
   }
 }
 
+function positionLockSprite(
+  sprite: any,
+  tile: Tile,
+  hidden: boolean,
+  GraphicsCtor: any,
+) {
+  let lock = (sprite as any).__lock;
+  if (!lock) {
+    lock = new GraphicsCtor();
+    lock.zIndex = 10;
+    sprite.addChild(lock);
+    (sprite as any).__lock = lock;
+  }
+
+  lock.visible = hidden;
+  if (!hidden) return;
+
+  const size = Math.max(20, Math.min(tile.w, tile.h) * 0.24);
+  const scale = size / 64;
+  lock.clear();
+  lock.lineStyle({ width: 2, color: 0x38bdf8, alpha: 1 });
+  lock.beginFill(0x0f172a, 0.95);
+  lock.drawRoundedRect(12, 26, 40, 28, 8);
+  lock.endFill();
+  lock.lineStyle({ width: 6, color: 0xe2e8f0, alpha: 1 });
+  lock.drawRoundedRect(22, 10, 20, 20, 10);
+  lock.beginFill(0x38bdf8, 1);
+  lock.drawCircle(32, 40, 4);
+  lock.endFill();
+  lock.scale.set(scale);
+  lock.pivot.set(32, 32);
+  lock.position.set(tile.w / 2, tile.h / 2);
+  lock.alpha = Math.max(0.95, sprite.alpha ?? 1);
+}
+
 function ensureInfoOverlay(sprite: any, TextCtor: any, GraphicsCtor: any, ContainerCtor: any) {
   let overlay = (sprite as any).__info;
   if (overlay) return overlay;
@@ -829,6 +878,10 @@ function updateInfoOverlay({
 }) {
   const overlay = ensureInfoOverlay(sprite, TextCtor, GraphicsCtor, ContainerCtor);
   if (!overlay) return;
+  if (tile.item.hidden) {
+    overlay.group.visible = false;
+    return;
+  }
   const isFocused = (sprite as any).__focused === true;
   const withinZoomRange = camera.zoom <= MAX_INFO_ZOOM;
   const showAuto =

@@ -9,7 +9,6 @@ export const loader = async ({ request }: { request: Request }) =>
 
     const statusList = auth ? ["ready", "processing", "error"] : ["ready", "processing"];
     const filter: Record<string, unknown> = { status: { $in: statusList } };
-    if (!auth) filter.visibility = "PUBLIC";
     if (query.visibility) filter.visibility = query.visibility;
     if (query.type) filter.type = query.type;
     if (query.tag) filter.tags = normalizeToken(query.tag);
@@ -71,14 +70,15 @@ export const loader = async ({ request }: { request: Request }) =>
         width: auth ? (item.width ?? null) : undefined,
         height: auth ? (item.height ?? null) : undefined,
         dateEffective: item.dateEffective,
-        hasLocation: Boolean(item.location),
+        hasLocation: !auth && item.visibility === "PRIVATE" ? false : Boolean(item.location),
         visibility: item.visibility,
         status: item.status,
         errorMessage: auth ? (item.errorMessage ?? null) : null,
-        title: item.title ?? "",
-        description: item.description ?? "",
+        hidden: !auth && item.visibility === "PRIVATE",
+        title: !auth && item.visibility === "PRIVATE" ? "" : item.title ?? "",
+        description: !auth && item.visibility === "PRIVATE" ? "" : item.description ?? "",
         placeName: auth ? (item.location?.placeName ?? "") : undefined,
-        dateTaken: item.dateTaken ?? null,
+        dateTaken: !auth && item.visibility === "PRIVATE" ? null : item.dateTaken ?? null,
         tags: auth ? (item.tags ?? []) : undefined,
         category: auth ? (item.category ?? null) : undefined,
         sizeBytes: auth ? pickSize(item) : undefined,

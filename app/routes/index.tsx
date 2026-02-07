@@ -14,6 +14,7 @@ export default function IndexRoute() {
     description?: string;
     dateTaken?: string | null;
     dateEffective?: string;
+    hidden?: boolean;
   }>>([]);
   const [year, setYear] = useState("");
   const [month, setMonth] = useState("");
@@ -59,11 +60,12 @@ export default function IndexRoute() {
             description: item.description,
             dateTaken: item.dateTaken ?? null,
             dateEffective: item.dateEffective,
+            hidden: item.hidden ?? false,
           })),
         );
       })
       .finally(() => setLoading(false));
-  }, [query]);
+  }, [query, user?.id]);
 
   useEffect(() => {
     getMe().then((data) => setUser(data.user ?? null));
@@ -129,10 +131,11 @@ export default function IndexRoute() {
           }}
         />
       ) : null}
-      {showMenu && user ? (
-        <UserMenuModal
+      {user ? (
+        <UserMenuDrawer
+          open={showMenu}
+          onOpenChange={setShowMenu}
           role={user.role}
-          onClose={() => setShowMenu(false)}
           onLogout={async () => {
             await logout();
             setUser(null);
@@ -277,43 +280,48 @@ function LoginModal({
   );
 }
 
-function UserMenuModal({
+function UserMenuDrawer({
+  open,
+  onOpenChange,
   role,
-  onClose,
   onLogout,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   role: "ADMIN" | "VIEWER";
-  onClose: () => void;
   onLogout: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-900 p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Menu</h3>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
-            Close
-          </button>
-        </div>
-        <div className="space-y-3">
-          <a href="/admin/media" className="flex items-center gap-2 rounded border border-white/10 px-3 py-2">
-            <FiImage /> Media
-          </a>
-          {role === "ADMIN" ? (
-            <a href="/admin/users" className="flex items-center gap-2 rounded border border-white/10 px-3 py-2">
-              <FiUsers /> Users
+    <Drawer.Root open={open} onOpenChange={onOpenChange} direction="right">
+      <Drawer.Portal>
+        <Drawer.Overlay className="fixed inset-0 z-40 bg-black/70" />
+        <Drawer.Content className="fixed right-0 top-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-white/10 bg-black/95 p-6 text-slate-100 shadow-2xl">
+          <div className="mb-4 flex items-center justify-between">
+            <Drawer.Title className="text-lg font-semibold">Menu</Drawer.Title>
+            <button type="button" onClick={() => onOpenChange(false)} className="text-slate-400 hover:text-white">
+              Close
+            </button>
+          </div>
+          <div className="space-y-3">
+            <a href="/admin/media" className="flex items-center gap-2 rounded border border-white/10 px-3 py-2">
+              <FiImage /> Media
             </a>
-          ) : null}
-          <button
-            type="button"
-            onClick={onLogout}
-            className="flex w-full items-center gap-2 rounded border border-rose-400/40 px-3 py-2 text-rose-200"
-          >
-            <FiLogOut /> Logout
-          </button>
-        </div>
-      </div>
-    </div>
+            {role === "ADMIN" ? (
+              <a href="/admin/users" className="flex items-center gap-2 rounded border border-white/10 px-3 py-2">
+                <FiUsers /> Users
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={onLogout}
+              className="flex w-full items-center gap-2 rounded border border-rose-400/40 px-3 py-2 text-rose-200"
+            >
+              <FiLogOut /> Logout
+            </button>
+          </div>
+        </Drawer.Content>
+      </Drawer.Portal>
+    </Drawer.Root>
   );
 }
 
