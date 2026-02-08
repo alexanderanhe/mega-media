@@ -22,6 +22,7 @@ export function getEnv() {
     ...env,
     JWT_EXPIRES_IN: env.JWT_EXPIRES_IN ?? "15m",
     R2_REGION: env.R2_REGION ?? "auto",
+    R2_REQUIRE_SIGNED_URLS: env.R2_REQUIRE_SIGNED_URLS ?? "false",
     NODE_ENV: env.NODE_ENV ?? "development",
   };
   return cachedEnv;

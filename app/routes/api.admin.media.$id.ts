@@ -17,6 +17,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
         ...Object.values(existing.variants ?? {}).map((variant) => variant.r2Key),
         existing.poster?.r2Key,
         existing.preview?.r2Key,
+        existing.blur?.r2Key,
       ].filter(Boolean) as string[];
 
       await deleteObjects(keys);

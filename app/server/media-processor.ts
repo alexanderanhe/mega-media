@@ -9,6 +9,8 @@ import { uploadBufferToR2 } from "./r2";
 
 const IMAGE_LODS = [64, 128, 256, 512, 1024] as const;
 const PREVIEW_SECONDS = clampNumber(Number(process.env.VIDEO_PREVIEW_SECONDS ?? 10), 2, 60);
+const BLUR_MAX_SIZE = clampNumber(Number(process.env.BLUR_MAX_SIZE ?? 360), 120, 1024);
+const BLUR_SIGMA = clampNumber(Number(process.env.BLUR_SIGMA ?? 16), 4, 40);
 
 type EnqueueInput = {
   mediaId: string;
@@ -110,6 +112,7 @@ async function processImage(input: EnqueueInput) {
   const lng = normalizeNumber(parsed?.longitude ?? parsed?.lon);
 
   const { width, height } = resolveDimensionsFromVariants(variants, null, oriented);
+  const blur = await createBlurVariant(decodedBuffer, input.mediaId);
 
   await media.updateOne(
     { _id: new ObjectId(input.mediaId) },
@@ -127,6 +130,7 @@ async function processImage(input: EnqueueInput) {
         status: "ready",
         poster: null,
         preview: null,
+        blur,
         type: "image",
         width,
         height,
@@ -208,6 +212,7 @@ async function processVideo(input: EnqueueInput) {
   const dateTaken = input.manualDateTaken ?? normalizeDate(creationTime);
 
   const { width, height } = resolveDimensionsFromVariants(variants, posterMeta, probe);
+  const blur = await createBlurVariant(posterBuffer, input.mediaId);
 
   await media.updateOne(
     { _id: new ObjectId(input.mediaId) },
@@ -221,6 +226,7 @@ async function processVideo(input: EnqueueInput) {
           mime: "image/jpeg",
         },
         preview,
+        blur,
         dateTaken,
         dateEffective: dateTaken ?? createdAt,
         location: input.placeName ? { lat: 0, lng: 0, source: "manual", placeName: input.placeName } : null,
@@ -237,6 +243,35 @@ async function processVideo(input: EnqueueInput) {
   );
 
   await fs.unlink(posterPath).catch(() => undefined);
+}
+
+async function createBlurVariant(buffer: Buffer, mediaId: string) {
+  try {
+    const rendered = await sharp(buffer)
+      .rotate()
+      .resize({ width: BLUR_MAX_SIZE, height: BLUR_MAX_SIZE, fit: "inside", withoutEnlargement: true })
+      .blur(BLUR_SIGMA)
+      .modulate({ saturation: 0.85 })
+      .webp({ quality: 55 })
+      .toBuffer({ resolveWithObject: true });
+
+    const key = `media/${mediaId}/blur.webp`;
+    await uploadBufferToR2({
+      key,
+      body: rendered.data,
+      contentType: "image/webp",
+      cacheControl: "public, max-age=31536000, immutable",
+    });
+
+    return {
+      r2Key: key,
+      w: rendered.info.width ?? 1,
+      h: rendered.info.height ?? 1,
+      mime: "image/webp",
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function failMedia(mediaId: string, message: string) {

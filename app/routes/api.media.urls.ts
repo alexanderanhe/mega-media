@@ -16,42 +16,46 @@ export const action = async ({ request }: { request: Request }) =>
     const docs = await media.find({ _id: { $in: ids }, status: "ready" }).toArray();
 
     const byId = new Map(docs.map((doc) => [doc._id.toString(), doc]));
-    const results: Array<{ id: string; lod: number; url: string | null; expiresAt?: number | null }> = [];
+    const results: Array<{ id: string; lod: number; kind: "lod" | "blur"; url: string | null; expiresAt?: number | null }> = [];
 
     for (const req of body.requests) {
+      const kind = req.kind ?? "lod";
       const doc = byId.get(req.id);
       if (!doc) {
-        results.push({ id: req.id, lod: req.lod, url: null });
+        results.push({ id: req.id, lod: req.lod, kind, url: null });
         continue;
       }
-      if (doc.visibility === "PRIVATE" && !auth) {
-        results.push({ id: req.id, lod: req.lod, url: null });
+      if (kind === "lod" && doc.visibility === "PRIVATE" && !auth) {
+        results.push({ id: req.id, lod: req.lod, kind, url: null });
         continue;
       }
 
-      const variant = doc.variants[`lod${req.lod}`];
+      const variant =
+        kind === "blur"
+          ? doc.blur
+          : doc.variants[`lod${req.lod}`];
       if (!variant) {
-        results.push({ id: req.id, lod: req.lod, url: null });
+        results.push({ id: req.id, lod: req.lod, kind, url: null });
         continue;
       }
 
       const publicUrl = toPublicUrl(variant.r2Key);
       if (publicUrl) {
-        results.push({ id: req.id, lod: req.lod, url: publicUrl, expiresAt: null });
+        results.push({ id: req.id, lod: req.lod, kind, url: publicUrl, expiresAt: null });
         continue;
       }
 
       const cached = signedUrlCache.get(variant.r2Key);
       const now = Date.now();
       if (cached && cached.expiresAt - now > 60_000) {
-        results.push({ id: req.id, lod: req.lod, url: cached.url, expiresAt: cached.expiresAt });
+        results.push({ id: req.id, lod: req.lod, kind, url: cached.url, expiresAt: cached.expiresAt });
         continue;
       }
 
       const url = await createSignedGetUrl(variant.r2Key, SIGNED_URL_TTL_SECONDS);
       const expiresAt = now + SIGNED_URL_TTL_SECONDS * 1000;
       signedUrlCache.set(variant.r2Key, { url, expiresAt });
-      results.push({ id: req.id, lod: req.lod, url, expiresAt });
+      results.push({ id: req.id, lod: req.lod, kind, url, expiresAt });
     }
 
     return jsonOk({ items: results });

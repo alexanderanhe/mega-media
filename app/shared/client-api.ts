@@ -152,8 +152,8 @@ export function getMediaCategories(query?: string) {
 type UrlCacheEntry = { url: string | null; expiresAt: number | null };
 const urlCache = new Map<string, UrlCacheEntry>();
 
-function cacheKey(id: string, lod: number) {
-  return `${id}:${lod}`;
+function cacheKey(id: string, lod: number, kind: "lod" | "blur") {
+  return `${id}:${kind}:${lod}`;
 }
 
 function loadUrlCache() {
@@ -197,20 +197,23 @@ export function clearMediaUrlCache() {
   }
 }
 
-export async function getBatchUrls(requests: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4 }>) {
+export async function getBatchUrls(
+  requests: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4; kind?: "lod" | "blur" }>,
+) {
   if (typeof window !== "undefined" && !cacheLoaded) {
     cacheLoaded = true;
     loadUrlCache();
   }
 
   const now = Date.now();
-  const cachedItems: Array<{ id: string; lod: number; url: string | null; expiresAt?: number | null }> = [];
-  const missing: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4 }> = [];
+  const cachedItems: Array<{ id: string; lod: number; kind: "lod" | "blur"; url: string | null; expiresAt?: number | null }> = [];
+  const missing: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4; kind?: "lod" | "blur" }> = [];
 
   for (const req of requests) {
-    const entry = urlCache.get(cacheKey(req.id, req.lod));
+    const kind = req.kind ?? "lod";
+    const entry = urlCache.get(cacheKey(req.id, req.lod, kind));
     if (entry && (!entry.expiresAt || entry.expiresAt > now)) {
-      cachedItems.push({ id: req.id, lod: req.lod, url: entry.url, expiresAt: entry.expiresAt });
+      cachedItems.push({ id: req.id, lod: req.lod, kind, url: entry.url, expiresAt: entry.expiresAt });
     } else {
       missing.push(req);
     }
@@ -221,7 +224,7 @@ export async function getBatchUrls(requests: Array<{ id: string; lod: 0 | 1 | 2 
   }
 
   const res = await request<{
-    items: Array<{ id: string; lod: number; url: string | null; expiresAt?: number | null }>;
+    items: Array<{ id: string; lod: number; kind: "lod" | "blur"; url: string | null; expiresAt?: number | null }>;
   }>("/api/media/urls", {
     method: "POST",
     body: JSON.stringify({ requests: missing }),
@@ -234,7 +237,7 @@ export async function getBatchUrls(requests: Array<{ id: string; lod: 0 | 1 | 2 
         url: item.url,
         expiresAt: item.expiresAt ?? null,
       };
-      urlCache.set(cacheKey(item.id, item.lod), entry);
+      urlCache.set(cacheKey(item.id, item.lod, item.kind), entry);
     }
   }
   if (typeof window !== "undefined") persistUrlCache();

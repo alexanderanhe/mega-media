@@ -55,6 +55,7 @@ export const batchUrlsSchema = z.object({
     .array(
       z.object({
         id: z.string().min(12),
+        kind: z.enum(["lod", "blur"]).optional(),
         lod: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
       }),
     )

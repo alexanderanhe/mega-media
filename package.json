@@ -7,7 +7,8 @@
     "dev": "react-router dev",
     "start": "dotenv -e .env.production -- react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
-    "admin:create": "node --env-file=.env ./scripts/create-admin.mjs"
+    "admin:create": "node --env-file=.env ./scripts/create-admin.mjs",
+    "media:blur": "node --env-file=.env ./scripts/generate-blur-previews.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.983.0",

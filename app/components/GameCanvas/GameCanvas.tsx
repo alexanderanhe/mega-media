@@ -52,6 +52,7 @@ export const GameCanvas = forwardRef<
   const loadingIdsRef = useRef(new Set<string>());
   const playTextureRef = useRef<any>(null);
   const videoIconTextureRef = useRef<any>(null);
+  const lockTextureRef = useRef<any>(null);
   const cameraRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
   const [overlay, setOverlay] = useState<OverlayState | null>(null);
   const focusedIdRef = useRef<string | null>(null);
@@ -419,14 +420,16 @@ export const GameCanvas = forwardRef<
         }
       }
 
-      const requests: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4; priority: number }> = [];
+      const requests: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4; kind?: "lod" | "blur"; priority: number }> = [];
 
       for (const tile of visible) {
+        const isHidden = tile.item.hidden === true;
         const px = tile.w * cameraRef.current.zoom;
         const prev = lodRef.current.get(tile.item.id) ?? null;
-        const lod = pickLod(px, prev);
+        const lod = isHidden ? 0 : pickLod(px, prev);
+        const kind: "lod" | "blur" = isHidden ? "blur" : "lod";
         lodRef.current.set(tile.item.id, lod);
-        const key = `${tile.item.id}:${lod}`;
+        const key = `${tile.item.id}:${kind}:${lod}`;
         const texture = texturesRef.current.get(key);
 
         let sprite = spritesRef.current.get(tile.item.id);
@@ -476,8 +479,8 @@ export const GameCanvas = forwardRef<
           }
         }
         positionPlaySprite(sprite, tile);
-        positionVideoExtras(sprite, tile);
-        positionLockSprite(sprite, tile, tile.item.hidden === true, GraphicsCtor);
+        positionVideoExtras(sprite, tile, isHidden);
+        positionLockSprite(sprite, tile, isHidden, cameraRef.current, SpriteCtor, TextureCtor, lockTextureRef);
         (sprite as any).__focused = focusedIdRef.current === tile.item.id;
         const infoOverlay = ensureInfoOverlay(sprite, TextCtor, GraphicsCtor, ContainerCtor);
         if (infoOverlay && !(sprite as any).__infoAdded) {
@@ -485,7 +488,7 @@ export const GameCanvas = forwardRef<
           (sprite as any).__infoAdded = true;
         }
 
-        if (tile.item.hidden) {
+        if (isHidden && !texture) {
           sprite.texture = TextureCtor.WHITE;
           sprite.tint = 0x1f2937;
         } else if (texture) {
@@ -495,8 +498,8 @@ export const GameCanvas = forwardRef<
           sprite.width = tile.w;
           sprite.height = tile.h;
           positionPlaySprite(sprite, tile);
-          positionVideoExtras(sprite, tile);
-          positionLockSprite(sprite, tile, false, GraphicsCtor);
+          positionVideoExtras(sprite, tile, isHidden);
+          positionLockSprite(sprite, tile, isHidden, cameraRef.current, SpriteCtor, TextureCtor, lockTextureRef);
           sprite.alpha = computeSpriteAlpha(tile, hostRect, cameraRef.current);
           updateInfoOverlay({
             sprite,
@@ -523,22 +526,23 @@ export const GameCanvas = forwardRef<
           sprite.height = tile.h;
           sprite.tint = tile.item.type === "video" ? 0x1f2937 : 0x334155;
           sprite.alpha = loadingAlpha(performance.now());
-          positionVideoExtras(sprite, tile);
-          positionLockSprite(sprite, tile, tile.item.hidden === true, GraphicsCtor);
+          positionVideoExtras(sprite, tile, isHidden);
+          positionLockSprite(sprite, tile, isHidden, cameraRef.current, SpriteCtor, TextureCtor, lockTextureRef);
           updateInfoOverlay({
             sprite,
             tile,
             camera: cameraRef.current,
-          hostRect,
-          TextCtor,
-          GraphicsCtor,
-          ContainerCtor,
-        });
+            hostRect,
+            TextCtor,
+            GraphicsCtor,
+            ContainerCtor,
+          });
         loadingIdsRef.current.add(tile.item.id);
         if (!urlRef.current.has(key)) {
           requests.push({
             id: tile.item.id,
             lod,
+            kind,
             priority: distanceToCenter(tile, hostRect.width, hostRect.height, cameraRef.current),
           });
         }
@@ -547,7 +551,7 @@ export const GameCanvas = forwardRef<
       const loaded = await schedulerRef.current.fetchUrls(requests);
       for (const item of loaded) {
         if (!item.url) continue;
-        const key = `${item.id}:${item.lod}`;
+        const key = `${item.id}:${item.kind ?? "lod"}:${item.lod}`;
         if (urlRef.current.get(key) === item.url) continue;
         urlRef.current.set(key, item.url);
         const texture = await AssetsModule.load(item.url);
@@ -555,15 +559,17 @@ export const GameCanvas = forwardRef<
       }
 
       for (const tile of visible) {
+        const isHidden = tile.item.hidden === true;
         const lod = lodRef.current.get(tile.item.id);
         if (lod === undefined) continue;
-        const key = `${tile.item.id}:${lod}`;
+        const kind: "lod" | "blur" = isHidden ? "blur" : "lod";
+        const key = `${tile.item.id}:${kind}:${lod}`;
         const texture = texturesRef.current.get(key);
         const sprite = spritesRef.current.get(tile.item.id);
-        if (sprite && tile.item.hidden) {
+        if (sprite && isHidden && !texture) {
           sprite.texture = TextureCtor.WHITE;
           sprite.tint = 0x1f2937;
-          positionLockSprite(sprite, tile, true, GraphicsCtor);
+          positionLockSprite(sprite, tile, true, cameraRef.current, SpriteCtor, TextureCtor, lockTextureRef);
         } else if (sprite && texture) {
           sprite.texture = texture;
           sprite.tint = 0xffffff;
@@ -572,8 +578,8 @@ export const GameCanvas = forwardRef<
           sprite.width = tile.w;
           sprite.height = tile.h;
           positionPlaySprite(sprite, tile);
-          positionVideoExtras(sprite, tile);
-          positionLockSprite(sprite, tile, false, GraphicsCtor);
+          positionVideoExtras(sprite, tile, isHidden);
+          positionLockSprite(sprite, tile, isHidden, cameraRef.current, SpriteCtor, TextureCtor, lockTextureRef);
           sprite.alpha = computeSpriteAlpha(tile, hostRect, cameraRef.current);
           updateInfoOverlay({
             sprite,
@@ -771,10 +777,17 @@ function positionPlaySprite(sprite: any, tile: Tile) {
   playSprite.position.set(tile.x + tile.w / 2, tile.y + tile.h / 2);
 }
 
-function positionVideoExtras(sprite: any, tile: Tile) {
+function positionVideoExtras(sprite: any, tile: Tile, hidden: boolean) {
   const border = (sprite as any).__border;
   const icon = (sprite as any).__videoIcon;
   if (!border && !icon) return;
+  if (hidden) {
+    if (border) border.clear();
+    if (icon) icon.visible = false;
+    const play = (sprite as any).__play;
+    if (play) play.visible = false;
+    return;
+  }
   if (border) {
     border.x = 0;
     border.y = 0;
@@ -783,6 +796,7 @@ function positionVideoExtras(sprite: any, tile: Tile) {
     border.drawRoundedRect(0, 0, tile.w, tile.h, 12);
   }
   if (icon) {
+    icon.visible = true;
     const size = Math.max(14, Math.min(tile.w, tile.h) * 0.14);
     icon.width = size;
     icon.height = size;
@@ -794,11 +808,32 @@ function positionLockSprite(
   sprite: any,
   tile: Tile,
   hidden: boolean,
-  GraphicsCtor: any,
+  camera: Camera,
+  SpriteCtor: any,
+  TextureCtor: any,
+  lockTextureRef: { current: any },
 ) {
   let lock = (sprite as any).__lock;
   if (!lock) {
-    lock = new GraphicsCtor();
+    if (!lockTextureRef.current) {
+      const svg = encodeURIComponent(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
+          `<defs>` +
+            `<radialGradient id="g" cx="50%" cy="45%" r="60%">` +
+              `<stop offset="0%" stop-color="rgba(15,23,42,0.25)"/>` +
+              `<stop offset="100%" stop-color="rgba(15,23,42,0.8)"/>` +
+            `</radialGradient>` +
+          `</defs>` +
+          `<circle cx="32" cy="32" r="30" fill="url(#g)"/>` +
+          `<rect x="18" y="28" width="28" height="22" rx="6" fill="rgba(15,23,42,0.55)" stroke="rgba(248,250,252,0.75)" stroke-width="3"/>` +
+          `<path d="M24 28v-6a8 8 0 0 1 16 0v6" fill="none" stroke="rgba(248,250,252,0.85)" stroke-width="4" stroke-linecap="round"/>` +
+          `<circle cx="32" cy="39" r="3" fill="rgba(248,250,252,0.85)"/>` +
+        `</svg>`,
+      );
+      lockTextureRef.current = TextureCtor.from(`data:image/svg+xml,${svg}`);
+    }
+    lock = new SpriteCtor(lockTextureRef.current);
+    lock.anchor.set(0.5);
     lock.zIndex = 10;
     sprite.addChild(lock);
     (sprite as any).__lock = lock;
@@ -807,22 +842,13 @@ function positionLockSprite(
   lock.visible = hidden;
   if (!hidden) return;
 
-  const size = Math.max(20, Math.min(tile.w, tile.h) * 0.24);
-  const scale = size / 64;
-  lock.clear();
-  lock.lineStyle({ width: 2, color: 0x38bdf8, alpha: 1 });
-  lock.beginFill(0x0f172a, 0.95);
-  lock.drawRoundedRect(12, 26, 40, 28, 8);
-  lock.endFill();
-  lock.lineStyle({ width: 6, color: 0xe2e8f0, alpha: 1 });
-  lock.drawRoundedRect(22, 10, 20, 20, 10);
-  lock.beginFill(0x38bdf8, 1);
-  lock.drawCircle(32, 40, 4);
-  lock.endFill();
-  lock.scale.set(scale);
-  lock.pivot.set(32, 32);
+  const minWorld = Math.max(18 / camera.zoom, 0);
+  const base = Math.min(tile.w, tile.h) * 0.28;
+  const size = Math.max(minWorld, Math.min(base, Math.min(tile.w, tile.h) * 0.6));
+  lock.width = size;
+  lock.height = size;
   lock.position.set(tile.w / 2, tile.h / 2);
-  lock.alpha = Math.max(0.95, sprite.alpha ?? 1);
+  lock.alpha = Math.max(0.78, sprite.alpha ?? 1);
 }
 
 function ensureInfoOverlay(sprite: any, TextCtor: any, GraphicsCtor: any, ContainerCtor: any) {

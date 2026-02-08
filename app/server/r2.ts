@@ -55,6 +55,7 @@ export async function deleteObjects(keys: string[]) {
 
 export function toPublicUrl(key: string) {
   const env = getEnv();
+  if (env.R2_REQUIRE_SIGNED_URLS?.toLowerCase() === "true") return null;
   if (!env.R2_PUBLIC_BASE_URL) return null;
   return `${env.R2_PUBLIC_BASE_URL.replace(/\/$/, "")}/${key}`;
 }

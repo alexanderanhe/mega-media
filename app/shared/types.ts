@@ -40,6 +40,7 @@ export interface MediaDoc {
   variants: Partial<Record<`lod${LodLevel}`, MediaVariant>>;
   poster: Omit<MediaVariant, "bytes"> | null;
   preview: { r2Key: string; mime: string; duration?: number } | null;
+  blur?: { r2Key: string; w: number; h: number; mime: string } | null;
   status: MediaStatus;
   errorMessage?: string;
 }

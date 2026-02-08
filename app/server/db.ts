@@ -37,6 +37,7 @@ type MediaCollectionDoc = {
   variants: Record<string, { r2Key: string; w: number; h: number; bytes: number; mime: string }>;
   poster: { r2Key: string; w: number; h: number; mime: string } | null;
   preview: { r2Key: string; mime: string; duration?: number } | null;
+  blur?: { r2Key: string; w: number; h: number; mime: string } | null;
   width?: number | null;
   height?: number | null;
   aspect: number;
