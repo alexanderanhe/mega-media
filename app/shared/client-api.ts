@@ -112,11 +112,84 @@ export function getMediaCategories(query?: string) {
   return request<{ items: string[] }>(`/api/media/categories${suffix ? `?${suffix}` : ""}`, { headers: {} });
 }
 
-export function getBatchUrls(requests: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4 }>) {
-  return request<{ items: Array<{ id: string; lod: number; url: string | null }> }>("/api/media/urls", {
+type UrlCacheEntry = { url: string | null; expiresAt: number | null };
+const urlCache = new Map<string, UrlCacheEntry>();
+
+function cacheKey(id: string, lod: number) {
+  return `${id}:${lod}`;
+}
+
+function loadUrlCache() {
+  try {
+    const raw = localStorage.getItem("media-url-cache");
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, UrlCacheEntry>;
+    const now = Date.now();
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!value) continue;
+      if (value.expiresAt && value.expiresAt <= now) continue;
+      urlCache.set(key, value);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function persistUrlCache() {
+  try {
+    const data: Record<string, UrlCacheEntry> = {};
+    for (const [key, value] of urlCache.entries()) {
+      data[key] = value;
+    }
+    localStorage.setItem("media-url-cache", JSON.stringify(data));
+  } catch {
+    // ignore
+  }
+}
+
+let cacheLoaded = false;
+
+export async function getBatchUrls(requests: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4 }>) {
+  if (typeof window !== "undefined" && !cacheLoaded) {
+    cacheLoaded = true;
+    loadUrlCache();
+  }
+
+  const now = Date.now();
+  const cachedItems: Array<{ id: string; lod: number; url: string | null; expiresAt?: number | null }> = [];
+  const missing: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4 }> = [];
+
+  for (const req of requests) {
+    const entry = urlCache.get(cacheKey(req.id, req.lod));
+    if (entry && (!entry.expiresAt || entry.expiresAt > now)) {
+      cachedItems.push({ id: req.id, lod: req.lod, url: entry.url, expiresAt: entry.expiresAt });
+    } else {
+      missing.push(req);
+    }
+  }
+
+  if (!missing.length) {
+    return { items: cachedItems };
+  }
+
+  const res = await request<{
+    items: Array<{ id: string; lod: number; url: string | null; expiresAt?: number | null }>;
+  }>("/api/media/urls", {
     method: "POST",
-    body: JSON.stringify({ requests }),
+    body: JSON.stringify({ requests: missing }),
   });
+
+  for (const item of res.items) {
+    if (!item) continue;
+    const entry: UrlCacheEntry = {
+      url: item.url ?? null,
+      expiresAt: item.expiresAt ?? null,
+    };
+    urlCache.set(cacheKey(item.id, item.lod), entry);
+  }
+  if (typeof window !== "undefined") persistUrlCache();
+
+  return { items: [...cachedItems, ...res.items] };
 }
 
 export function getVideoPlayback(id: string) {

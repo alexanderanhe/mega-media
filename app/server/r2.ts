@@ -27,12 +27,14 @@ export async function uploadBufferToR2(input: {
   key: string;
   body: Buffer;
   contentType: string;
+  cacheControl?: string;
 }) {
   const command = new PutObjectCommand({
     Bucket: bucket(),
     Key: input.key,
     Body: input.body,
     ContentType: input.contentType,
+    CacheControl: input.cacheControl,
   });
   await getClient().send(command);
 }

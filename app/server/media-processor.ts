@@ -88,7 +88,12 @@ async function processImage(input: EnqueueInput) {
       .toBuffer({ resolveWithObject: true });
 
     const key = `media/${input.mediaId}/lod${i}.webp`;
-    await uploadBufferToR2({ key, body: rendered.data, contentType: "image/webp" });
+    await uploadBufferToR2({
+      key,
+      body: rendered.data,
+      contentType: "image/webp",
+      cacheControl: "public, max-age=31536000, immutable",
+    });
     variants[`lod${i}`] = {
       r2Key: key,
       w: rendered.info.width,
@@ -151,7 +156,12 @@ async function processVideo(input: EnqueueInput) {
 
   const posterMeta = await sharp(posterBuffer).metadata();
   const posterKey = `media/${input.mediaId}/poster.jpg`;
-  await uploadBufferToR2({ key: posterKey, body: posterBuffer, contentType: "image/jpeg" });
+  await uploadBufferToR2({
+    key: posterKey,
+    body: posterBuffer,
+    contentType: "image/jpeg",
+    cacheControl: "public, max-age=31536000, immutable",
+  });
 
   const variants: Record<string, { r2Key: string; w: number; h: number; bytes: number; mime: string }> = {};
   for (let i = 0; i < IMAGE_LODS.length; i += 1) {
@@ -160,7 +170,12 @@ async function processVideo(input: EnqueueInput) {
       .webp({ quality: 80 })
       .toBuffer({ resolveWithObject: true });
     const key = `media/${input.mediaId}/lod${i}.webp`;
-    await uploadBufferToR2({ key, body: rendered.data, contentType: "image/webp" });
+    await uploadBufferToR2({
+      key,
+      body: rendered.data,
+      contentType: "image/webp",
+      cacheControl: "public, max-age=31536000, immutable",
+    });
     variants[`lod${i}`] = {
       r2Key: key,
       w: rendered.info.width,
@@ -176,7 +191,12 @@ async function processVideo(input: EnqueueInput) {
   if (previewOk) {
     const previewBuffer = await fs.readFile(previewPath);
     const previewKey = `media/${input.mediaId}/preview.mp4`;
-    await uploadBufferToR2({ key: previewKey, body: previewBuffer, contentType: "video/mp4" });
+    await uploadBufferToR2({
+      key: previewKey,
+      body: previewBuffer,
+      contentType: "video/mp4",
+      cacheControl: "public, max-age=31536000, immutable",
+    });
     preview = {
       r2Key: previewKey,
       mime: "video/mp4",

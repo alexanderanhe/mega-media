@@ -94,7 +94,12 @@ export const action = async ({ request }: { request: Request }) =>
     const tmpPath = path.join(os.tmpdir(), `${id.toString()}-original.${extension}`);
     await fs.writeFile(tmpPath, bytes);
 
-    await uploadBufferToR2({ key: originalKey, body: bytes, contentType: file.type || fallbackMime(type) });
+    await uploadBufferToR2({
+      key: originalKey,
+      body: bytes,
+      contentType: file.type || fallbackMime(type),
+      cacheControl: "public, max-age=31536000, immutable",
+    });
 
     try {
       await media.insertOne({
