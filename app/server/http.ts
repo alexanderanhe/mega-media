@@ -60,10 +60,24 @@ export function withApiErrorHandling(handler: (request: Request, args?: unknown)
     } catch (error) {
       if (error instanceof ApiError) return jsonError(error.status, error.message);
       if (error instanceof z.ZodError) {
-        return jsonError(400, "Invalid request", { issues: error.flatten() });
+        return jsonError(400, "Validation error", {
+          issues: error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+          detail: formatZodIssues(error),
+        });
       }
       console.error(error);
       return jsonError(500, "Internal server error");
     }
   };
+}
+
+function formatZodIssues(error: z.ZodError) {
+  const messages = error.issues.map((issue) => {
+    const path = issue.path.join(".");
+    return path ? `${path}: ${issue.message}` : issue.message;
+  });
+  return messages.join(", ");
 }

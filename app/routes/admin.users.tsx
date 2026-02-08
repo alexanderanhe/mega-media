@@ -11,7 +11,20 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function AdminUsersRoute() {
-  const [users, setUsers] = useState<Array<{ id: string; email: string; role: "ADMIN" | "VIEWER"; isActive: boolean; createdAt: string }>>([]);
+  const [users, setUsers] = useState<
+    Array<{
+      id: string;
+      email: string;
+      role: "ADMIN" | "VIEWER";
+      isActive: boolean;
+      name?: string;
+      approvalStatus?: "pending" | "approved" | "disabled";
+      requestMessage?: string;
+      requestedAt?: string | null;
+      emailVerifiedAt?: string | null;
+      createdAt: string;
+    }>
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -64,8 +77,11 @@ export default function AdminUsersRoute() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-slate-400">
+                <th>Name</th>
                 <th>Email</th>
                 <th>Role</th>
+                <th>Status</th>
+                <th>Request</th>
                 <th>Active</th>
                 <th>Actions</th>
               </tr>
@@ -74,18 +90,35 @@ export default function AdminUsersRoute() {
             {loading
               ? Array.from({ length: 6 }).map((_, idx) => (
                   <tr key={`skeleton-${idx}`} className="border-t border-white/10">
+                    <td className="py-3"><div className="skeleton h-4 w-28" /></td>
                     <td className="py-3"><div className="skeleton h-4 w-48" /></td>
                     <td><div className="skeleton h-4 w-20" /></td>
+                    <td><div className="skeleton h-4 w-20" /></td>
+                    <td><div className="skeleton h-4 w-56" /></td>
                     <td><div className="skeleton h-4 w-16" /></td>
                     <td><div className="skeleton h-8 w-40" /></td>
                   </tr>
                 ))
               : users.map((user) => (
                   <tr key={user.id} className="border-t border-white/10">
+                    <td className="py-2">{user.name || "-"}</td>
                     <td className="py-2">{user.email}</td>
                     <td>{user.role}</td>
+                    <td>{user.approvalStatus ?? (user.isActive ? "approved" : "pending")}</td>
+                    <td className="max-w-xs truncate text-slate-300">{user.requestMessage || "-"}</td>
                     <td>{user.isActive ? "yes" : "no"}</td>
                     <td className="space-x-2 py-2">
+                      {user.approvalStatus === "pending" || !user.isActive ? (
+                        <button
+                          type="button"
+                          className="rounded border border-emerald-400/40 px-2 py-1 text-emerald-200"
+                          onClick={() =>
+                            patchAdminUser(user.id, { isActive: true, approvalStatus: "approved" }).then(refresh)
+                          }
+                        >
+                          Approve
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="rounded border border-white/20 px-2 py-1"

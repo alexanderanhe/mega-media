@@ -14,7 +14,25 @@ export const createUserSchema = z.object({
 export const patchUserSchema = z.object({
   role: z.enum(["ADMIN", "VIEWER"]).optional(),
   isActive: z.boolean().optional(),
+  approvalStatus: z.enum(["pending", "approved", "disabled"]).optional(),
   password: z.string().min(8).max(128).optional(),
+  name: z.string().min(2).max(120).optional(),
+});
+
+export const requestAccessSchema = z.object({
+  name: z.string().min(2).max(120),
+  email: z.string().email(),
+});
+
+export const verifyAccessCodeSchema = z.object({
+  email: z.string().email(),
+  code: z.string().regex(/^\d{6}$/),
+});
+
+export const completeSignupSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
+  requestMessage: z.string().min(4).max(2000),
 });
 
 export const pageQuerySchema = z.object({

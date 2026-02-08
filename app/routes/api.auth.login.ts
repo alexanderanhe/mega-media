@@ -12,7 +12,8 @@ export const action = async ({ request }: { request: Request }) =>
     const body = await parseJson(request, loginSchema);
     const { users } = await getCollections();
     const user = await users.findOne({ email: body.email.toLowerCase() });
-    if (!user || !user.isActive) throw new ApiError(401, "Invalid credentials");
+    if (!user) throw new ApiError(401, "Invalid credentials");
+    if (!user.isActive) throw new ApiError(403, "Access pending approval");
 
     const ok = await comparePassword(body.password, user.passwordHash);
     if (!ok) throw new ApiError(401, "Invalid credentials");

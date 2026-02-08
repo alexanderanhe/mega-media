@@ -40,7 +40,19 @@ async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
     let message = `HTTP ${res.status}`;
     try {
       const json = await res.json();
-      message = json.error ?? message;
+      if (json.detail) {
+        message = json.detail;
+      } else if (Array.isArray(json.issues) && json.issues.length) {
+        message = json.issues
+          .map((issue: { path?: string; message?: string }) => {
+            const path = issue.path ? `${issue.path}: ` : "";
+            return `${path}${issue.message ?? ""}`.trim();
+          })
+          .filter(Boolean)
+          .join(", ");
+      } else {
+        message = json.error ?? message;
+      }
     } catch {
       // ignore
     }
@@ -54,10 +66,35 @@ export function getMe() {
   return request<{ user: SessionUser }>("/api/auth/me", { headers: {} });
 }
 
+export function getAuthConfig() {
+  return request<{ enableSelfSignup: boolean }>("/api/auth/config", { headers: {} });
+}
+
 export function login(email: string, password: string) {
   return request<{ ok: boolean }>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
+  });
+}
+
+export function requestAccess(payload: { name: string; email: string }) {
+  return request<{ ok: boolean }>("/api/auth/request-access", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function verifyAccessCode(payload: { email: string; code: string }) {
+  return request<{ ok: boolean }>("/api/auth/verify-access", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function completeSignup(payload: { email: string; password: string; requestMessage: string }) {
+  return request<{ ok: boolean }>("/api/auth/complete-signup", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
@@ -126,7 +163,7 @@ function loadUrlCache() {
     const parsed = JSON.parse(raw) as Record<string, UrlCacheEntry>;
     const now = Date.now();
     for (const [key, value] of Object.entries(parsed)) {
-      if (!value) continue;
+      if (!value || !value.url) continue;
       if (value.expiresAt && value.expiresAt <= now) continue;
       urlCache.set(key, value);
     }
@@ -148,6 +185,17 @@ function persistUrlCache() {
 }
 
 let cacheLoaded = false;
+
+export function clearMediaUrlCache() {
+  urlCache.clear();
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem("media-url-cache");
+    } catch {
+      // ignore
+    }
+  }
+}
 
 export async function getBatchUrls(requests: Array<{ id: string; lod: 0 | 1 | 2 | 3 | 4 }>) {
   if (typeof window !== "undefined" && !cacheLoaded) {
@@ -181,11 +229,13 @@ export async function getBatchUrls(requests: Array<{ id: string; lod: 0 | 1 | 2 
 
   for (const item of res.items) {
     if (!item) continue;
-    const entry: UrlCacheEntry = {
-      url: item.url ?? null,
-      expiresAt: item.expiresAt ?? null,
-    };
-    urlCache.set(cacheKey(item.id, item.lod), entry);
+    if (item.url) {
+      const entry: UrlCacheEntry = {
+        url: item.url,
+        expiresAt: item.expiresAt ?? null,
+      };
+      urlCache.set(cacheKey(item.id, item.lod), entry);
+    }
   }
   if (typeof window !== "undefined") persistUrlCache();
 
@@ -199,10 +249,20 @@ export function getVideoPlayback(id: string) {
 }
 
 export function getAdminUsers() {
-  return request<{ items: Array<{ id: string; email: string; role: "ADMIN" | "VIEWER"; isActive: boolean; createdAt: string }> }>(
-    "/api/admin/users",
-    { headers: {} },
-  );
+  return request<{
+    items: Array<{
+      id: string;
+      email: string;
+      role: "ADMIN" | "VIEWER";
+      isActive: boolean;
+      name?: string;
+      approvalStatus?: "pending" | "approved" | "disabled";
+      requestMessage?: string;
+      requestedAt?: string | null;
+      emailVerifiedAt?: string | null;
+      createdAt: string;
+    }>;
+  }>("/api/admin/users", { headers: {} });
 }
 
 export function createAdminUser(payload: { email: string; password: string; role: "ADMIN" | "VIEWER" }) {
@@ -212,7 +272,16 @@ export function createAdminUser(payload: { email: string; password: string; role
   });
 }
 
-export function patchAdminUser(id: string, payload: { role?: "ADMIN" | "VIEWER"; isActive?: boolean; password?: string }) {
+export function patchAdminUser(
+  id: string,
+  payload: {
+    role?: "ADMIN" | "VIEWER";
+    isActive?: boolean;
+    approvalStatus?: "pending" | "approved" | "disabled";
+    password?: string;
+    name?: string;
+  },
+) {
   return request<{ ok: boolean }>(`/api/admin/users/${id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),

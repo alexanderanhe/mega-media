@@ -1,7 +1,18 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { FiCalendar, FiImage, FiLogIn, FiLogOut, FiMinus, FiPlus, FiUser, FiUsers } from "react-icons/fi";
 import { GameCanvas, type GameCanvasHandle } from "~/components/GameCanvas/GameCanvas";
-import { getMediaFacets, getMediaPages, getMe, login, logout } from "~/shared/client-api";
+import {
+  completeSignup,
+  clearMediaUrlCache,
+  getAuthConfig,
+  getMediaFacets,
+  getMediaPages,
+  getMe,
+  login,
+  logout,
+  requestAccess,
+  verifyAccessCode,
+} from "~/shared/client-api";
 import { Drawer } from "vaul";
 
 export default function IndexRoute() {
@@ -27,6 +38,8 @@ export default function IndexRoute() {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<{ id: string; email: string; role: "ADMIN" | "VIEWER" } | null>(null);
   const [showLogin, setShowLogin] = useState(false);
+  const [showRequestAccess, setShowRequestAccess] = useState(false);
+  const [enableSelfSignup, setEnableSelfSignup] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [typeFilter, setTypeFilter] = useState<"" | "image" | "video">("");
@@ -69,6 +82,10 @@ export default function IndexRoute() {
 
   useEffect(() => {
     getMe().then((data) => setUser(data.user ?? null));
+  }, []);
+
+  useEffect(() => {
+    getAuthConfig().then((data) => setEnableSelfSignup(Boolean(data.enableSelfSignup)));
   }, []);
 
   useEffect(() => {
@@ -125,10 +142,21 @@ export default function IndexRoute() {
       {showLogin ? (
         <LoginModal
           onClose={() => setShowLogin(false)}
+          showRequestAccess={enableSelfSignup}
+          onRequestAccess={() => {
+            setShowLogin(false);
+            setShowRequestAccess(true);
+          }}
           onSuccess={(nextUser) => {
             setUser(nextUser);
             setShowLogin(false);
           }}
+        />
+      ) : null}
+      {showRequestAccess ? (
+        <RequestAccessModal
+          onClose={() => setShowRequestAccess(false)}
+          onDone={() => setShowRequestAccess(false)}
         />
       ) : null}
       {user ? (
@@ -139,6 +167,7 @@ export default function IndexRoute() {
           onLogout={async () => {
             await logout();
             setUser(null);
+            clearMediaUrlCache();
             setShowMenu(false);
             const next = window.location.pathname + window.location.search + window.location.hash;
             window.location.href = `/login?next=${encodeURIComponent(next)}`;
@@ -220,9 +249,13 @@ function CircleButton({
 function LoginModal({
   onClose,
   onSuccess,
+  showRequestAccess,
+  onRequestAccess,
 }: {
   onClose: () => void;
   onSuccess: (user: { id: string; email: string; role: "ADMIN" | "VIEWER" }) => void;
+  showRequestAccess: boolean;
+  onRequestAccess: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -262,6 +295,7 @@ function LoginModal({
               setError(null);
               try {
                 await login(email, password);
+                clearMediaUrlCache();
                 const me = await getMe();
                 if (me.user) onSuccess(me.user);
               } catch (err) {
@@ -274,7 +308,170 @@ function LoginModal({
           >
             <FiLogIn /> Login
           </button>
+          {showRequestAccess ? (
+            <button
+              type="button"
+              onClick={onRequestAccess}
+              className="text-left text-sm text-cyan-300 hover:text-cyan-200"
+            >
+              No tienes cuenta? Solicitar acceso
+            </button>
+          ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function RequestAccessModal({
+  onClose,
+  onDone,
+}: {
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [step, setStep] = useState<"request" | "verify" | "complete" | "done">("request");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [requestMessage, setRequestMessage] = useState(
+    "Hola, me gustaria solicitar acceso a la galeria. Gracias.",
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Solicitar acceso</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+            Close
+          </button>
+        </div>
+        {step === "request" ? (
+          <div className="space-y-3">
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Nombre"
+              type="text"
+              className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
+            />
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="Email"
+              type="email"
+              className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
+            />
+            {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+            <button
+              type="button"
+              disabled={loading}
+              onClick={async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                  await requestAccess({ name: name.trim(), email: email.trim() });
+                  setStep("verify");
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Request failed");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded bg-cyan-600 px-4 py-2 font-semibold disabled:opacity-60"
+            >
+              Enviar codigo
+            </button>
+          </div>
+        ) : null}
+        {step === "verify" ? (
+          <div className="space-y-3">
+            <input
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              placeholder="Codigo de 6 digitos"
+              inputMode="numeric"
+              className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
+            />
+            {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+            <button
+              type="button"
+              disabled={loading}
+              onClick={async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                  await verifyAccessCode({ email: email.trim(), code: code.trim() });
+                  setStep("complete");
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Verification failed");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded bg-cyan-600 px-4 py-2 font-semibold disabled:opacity-60"
+            >
+              Verificar codigo
+            </button>
+          </div>
+        ) : null}
+        {step === "complete" ? (
+          <div className="space-y-3">
+            <input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Password"
+              type="password"
+              className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
+            />
+            <textarea
+              value={requestMessage}
+              onChange={(event) => setRequestMessage(event.target.value)}
+              rows={4}
+              className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
+            />
+            {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+            <button
+              type="button"
+              disabled={loading}
+              onClick={async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                  await completeSignup({
+                    email: email.trim(),
+                    password,
+                    requestMessage: requestMessage.trim(),
+                  });
+                  setStep("done");
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Signup failed");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded bg-cyan-600 px-4 py-2 font-semibold disabled:opacity-60"
+            >
+              Enviar solicitud
+            </button>
+          </div>
+        ) : null}
+        {step === "done" ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-300">Listo. Tu solicitud fue enviada y esta pendiente de aprobacion.</p>
+            <button
+              type="button"
+              onClick={onDone}
+              className="flex w-full items-center justify-center gap-2 rounded bg-cyan-600 px-4 py-2 font-semibold"
+            >
+              Cerrar
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

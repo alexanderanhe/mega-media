@@ -9,6 +9,14 @@ type UserDoc = {
   passwordHash: string;
   role: UserRole;
   isActive: boolean;
+  name?: string;
+  approvalStatus?: "pending" | "approved" | "disabled";
+  requestMessage?: string;
+  requestedAt?: Date;
+  emailVerifiedAt?: Date;
+  verificationCodeHash?: string;
+  verificationCodeExpiresAt?: Date;
+  verificationSentAt?: Date;
   createdAt: Date;
 };
 
@@ -98,6 +106,7 @@ async function initialize(db: Awaited<ReturnType<typeof getDb>>) {
     passwordHash: await bcrypt.hash(bootstrapPassword, 10),
     role: "ADMIN",
     isActive: true,
+    approvalStatus: "approved",
     createdAt: new Date(),
   });
 }

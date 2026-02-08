@@ -12,6 +12,8 @@ export const action = async ({ request, params }: { request: Request; params: { 
     const patch: Record<string, unknown> = {};
     if (body.role) patch.role = body.role;
     if (typeof body.isActive === "boolean") patch.isActive = body.isActive;
+    if (body.approvalStatus) patch.approvalStatus = body.approvalStatus;
+    if (body.name) patch.name = body.name;
     if (body.password) patch.passwordHash = await hashPassword(body.password);
 
     if (Object.keys(patch).length === 0) throw new ApiError(400, "No changes provided");

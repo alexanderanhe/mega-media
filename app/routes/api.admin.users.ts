@@ -18,6 +18,11 @@ export const loader = async ({ request }: { request: Request }) =>
         email: item.email,
         role: item.role,
         isActive: item.isActive,
+        name: item.name ?? "",
+        approvalStatus: item.approvalStatus ?? (item.isActive ? "approved" : "pending"),
+        requestMessage: item.requestMessage ?? "",
+        requestedAt: item.requestedAt ?? null,
+        emailVerifiedAt: item.emailVerifiedAt ?? null,
         createdAt: item.createdAt,
       })),
     });
@@ -38,6 +43,7 @@ export const action = async ({ request }: { request: Request }) =>
       passwordHash: await hashPassword(body.password),
       role: body.role,
       isActive: true,
+      approvalStatus: "approved",
       createdAt: new Date(),
     });
 

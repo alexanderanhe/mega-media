@@ -12,6 +12,10 @@ export default [
   route("api/auth/login", "routes/api.auth.login.ts"),
   route("api/auth/logout", "routes/api.auth.logout.ts"),
   route("api/auth/me", "routes/api.auth.me.ts"),
+  route("api/auth/config", "routes/api.auth.config.ts"),
+  route("api/auth/request-access", "routes/api.auth.request-access.ts"),
+  route("api/auth/verify-access", "routes/api.auth.verify-access.ts"),
+  route("api/auth/complete-signup", "routes/api.auth.complete-signup.ts"),
 
   route("api/admin/users", "routes/api.admin.users.ts"),
   route("api/admin/users/:id", "routes/api.admin.users.$id.ts"),
