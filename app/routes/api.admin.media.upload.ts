@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
+import { createWriteStream } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
+import busboy from "busboy";
 import { getCollections, ObjectId } from "~/server/db";
 import { uploadBufferToR2 } from "~/server/r2";
 import { enqueueMediaProcessing } from "~/server/media-processor";
@@ -14,11 +17,9 @@ export const action = async ({ request }: { request: Request }) =>
   withApiErrorHandling(async () => {
     await requireRole(request, "ADMIN");
 
-    const form = await request.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) throw new ApiError(400, "Missing file");
+    const { fields, file } = await parseMultipart(request);
 
-    const visibilityRaw = form.get("visibility");
+    const visibilityRaw = fields.visibility;
     let visibility: "PUBLIC" | "PRIVATE" = "PRIVATE";
     if (typeof visibilityRaw === "string" && visibilityRaw) {
       if (visibilityRaw !== "PUBLIC" && visibilityRaw !== "PRIVATE") {
@@ -27,30 +28,30 @@ export const action = async ({ request }: { request: Request }) =>
       visibility = visibilityRaw;
     }
 
-    const dateTakenRaw = form.get("dateTaken");
+    const dateTakenRaw = fields.dateTaken;
     const manualDateTaken =
       typeof dateTakenRaw === "string" && dateTakenRaw ? new Date(dateTakenRaw) : null;
     if (manualDateTaken && Number.isNaN(manualDateTaken.getTime())) {
       throw new ApiError(400, "Invalid dateTaken");
     }
 
-    const placeNameRaw = form.get("placeName");
+    const placeNameRaw = fields.placeName;
     const placeName = typeof placeNameRaw === "string" && placeNameRaw ? placeNameRaw : undefined;
 
-    const titleRaw = form.get("title");
-    const descriptionRaw = form.get("description");
-    const title = typeof titleRaw === "string" && titleRaw.trim() ? titleRaw.trim() : file.name;
+    const titleRaw = fields.title;
+    const descriptionRaw = fields.description;
+    const title = typeof titleRaw === "string" && titleRaw.trim() ? titleRaw.trim() : file.filename;
     const description = typeof descriptionRaw === "string" ? descriptionRaw : "";
 
-    const latRaw = form.get("lat");
-    const lngRaw = form.get("lng");
+    const latRaw = fields.lat;
+    const lngRaw = fields.lng;
     const lat = typeof latRaw === "string" && latRaw ? Number.parseFloat(latRaw) : null;
     const lng = typeof lngRaw === "string" && lngRaw ? Number.parseFloat(lngRaw) : null;
     const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
 
-    const type = ACCEPTED_IMAGE.has(file.type)
+    const type = ACCEPTED_IMAGE.has(file.mimeType)
       ? "image"
-      : ACCEPTED_VIDEO.has(file.type)
+      : ACCEPTED_VIDEO.has(file.mimeType)
         ? "video"
         : null;
 
@@ -60,8 +61,8 @@ export const action = async ({ request }: { request: Request }) =>
       throw new ApiError(413, "File exceeds 500MB limit");
     }
 
-    const bytes = Buffer.from(await file.arrayBuffer());
-    const fileHash = createHash("sha256").update(bytes).digest("hex");
+    const bytes = await fs.readFile(file.path);
+    const fileHash = file.hash;
 
     const now = new Date();
     const { media } = await getCollections();
@@ -84,20 +85,20 @@ export const action = async ({ request }: { request: Request }) =>
           },
         },
       );
+      await fs.unlink(file.path).catch(() => undefined);
       return jsonOk({ id: existing._id.toString(), status: existing.status, duplicate: true, replaced: true }, { status: 200 });
     }
 
     const id = new ObjectId();
-    const extension = extensionFromFile(file.name, file.type, type);
+    const extension = extensionFromFile(file.filename, file.mimeType, type);
     const originalKey = `media/${id.toString()}/original.${extension}`;
 
-    const tmpPath = path.join(os.tmpdir(), `${id.toString()}-original.${extension}`);
-    await fs.writeFile(tmpPath, bytes);
+    const tmpPath = file.path;
 
     await uploadBufferToR2({
       key: originalKey,
       body: bytes,
-      contentType: file.type || fallbackMime(type),
+      contentType: file.mimeType || fallbackMime(type),
       cacheControl: "public, max-age=31536000, immutable",
     });
 
@@ -141,7 +142,7 @@ export const action = async ({ request }: { request: Request }) =>
       mediaId: id.toString(),
       localPath: tmpPath,
       type,
-      mime: file.type || fallbackMime(type),
+      mime: file.mimeType || fallbackMime(type),
       extension,
       manualDateTaken,
       placeName,
@@ -149,6 +150,81 @@ export const action = async ({ request }: { request: Request }) =>
 
     return jsonOk({ id: id.toString(), status: "processing", duplicate: false }, { status: 202 });
   })(request);
+
+type ParsedUpload = {
+  fields: Record<string, string>;
+  file: { path: string; filename: string; mimeType: string; size: number; hash: string };
+};
+
+async function parseMultipart(request: Request): Promise<ParsedUpload> {
+  const headers = Object.fromEntries(request.headers);
+  return new Promise((resolve, reject) => {
+    const bb = busboy({
+      headers,
+      limits: { fileSize: 500 * 1024 * 1024 },
+    });
+    const fields: Record<string, string> = {};
+    let fileMeta: ParsedUpload["file"] | null = null;
+    let fileDone: Promise<void> | null = null;
+
+    bb.on("field", (name, value) => {
+      fields[name] = value;
+    });
+
+    bb.on("file", (name, stream, info) => {
+      if (name !== "file") {
+        stream.resume();
+        return;
+      }
+      const tmpPath = path.join(os.tmpdir(), `${Date.now()}-${Math.random().toString(16).slice(2)}-upload`);
+      const hash = createHash("sha256");
+      let size = 0;
+      const out = createWriteStream(tmpPath);
+
+      stream.on("data", (chunk) => {
+        size += chunk.length;
+        hash.update(chunk);
+      });
+      stream.on("limit", () => {
+        out.destroy(new Error("File exceeds 500MB limit"));
+      });
+
+      fileDone = new Promise((res, rej) => {
+        out.on("finish", () => {
+          fileMeta = {
+            path: tmpPath,
+            filename: info.filename ?? "upload",
+            mimeType: info.mimeType ?? "",
+            size,
+            hash: hash.digest("hex"),
+          };
+          res();
+        });
+        out.on("error", rej);
+        stream.on("error", rej);
+      });
+
+      stream.pipe(out);
+    });
+
+    bb.on("error", reject);
+    bb.on("finish", async () => {
+      try {
+        if (fileDone) await fileDone;
+        if (!fileMeta) throw new ApiError(400, "Missing file");
+        resolve({ fields, file: fileMeta });
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    if (!request.body) {
+      reject(new ApiError(400, "Missing body"));
+      return;
+    }
+    Readable.fromWeb(request.body as any).pipe(bb);
+  });
+}
 
 function extensionFromFile(name: string, mime: string, type: "image" | "video") {
   const ext = name.split(".").pop()?.toLowerCase();

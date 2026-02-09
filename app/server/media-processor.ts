@@ -8,7 +8,9 @@ import { ObjectId, getCollections } from "./db";
 import { uploadBufferToR2 } from "./r2";
 
 const IMAGE_LODS = [64, 128, 256, 512, 1024] as const;
-const PREVIEW_SECONDS = clampNumber(Number(process.env.VIDEO_PREVIEW_SECONDS ?? 10), 2, 60);
+const PREVIEW_SECONDS_RAW = String(process.env.VIDEO_PREVIEW_SECONDS ?? "10").trim().toLowerCase();
+const PREVIEW_MODE = PREVIEW_SECONDS_RAW === "full" || PREVIEW_SECONDS_RAW === "0" ? "full" : "fixed";
+const PREVIEW_SECONDS_FIXED = clampNumber(Number(PREVIEW_SECONDS_RAW || 10), 2, 60);
 const BLUR_MAX_SIZE = clampNumber(Number(process.env.BLUR_MAX_SIZE ?? 360), 120, 1024);
 const BLUR_SIGMA = clampNumber(Number(process.env.BLUR_SIGMA ?? 16), 4, 40);
 
@@ -191,7 +193,11 @@ async function processVideo(input: EnqueueInput) {
 
   let preview: { r2Key: string; mime: string; duration?: number } | null = null;
   const previewPath = path.join(os.tmpdir(), `${input.mediaId}-preview.mp4`);
-  const previewOk = await generatePreview(input.localPath, previewPath, PREVIEW_SECONDS);
+  const previewSeconds =
+    PREVIEW_MODE === "full"
+      ? Math.max(1, Math.ceil(probe.duration ?? PREVIEW_SECONDS_FIXED))
+      : PREVIEW_SECONDS_FIXED;
+  const previewOk = await generatePreview(input.localPath, previewPath, previewSeconds);
   if (previewOk) {
     const previewBuffer = await fs.readFile(previewPath);
     const previewKey = `media/${input.mediaId}/preview.mp4`;
@@ -204,7 +210,7 @@ async function processVideo(input: EnqueueInput) {
     preview = {
       r2Key: previewKey,
       mime: "video/mp4",
-      duration: Math.min(probe.duration ?? 0, PREVIEW_SECONDS) || undefined,
+      duration: Math.min(probe.duration ?? 0, previewSeconds) || undefined,
     };
     await fs.unlink(previewPath).catch(() => undefined);
   }

@@ -35,6 +35,9 @@ Variables clave:
 - `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
 - `FFMPEG_PATH` (opcional, si ffmpeg no está en PATH)
 - `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` (opcional para primer admin)
+- `VIDEO_PREVIEW_SECONDS` (opcional, default 10; usa `full` para preview completo)
+- `VITE_BRANDING_DIR` (opcional, branding custom desde `public/branding/<dir>`)
+- `VITE_BACKGROUND_IMAGE` (opcional, imagen de fondo repetida en `/`)
 
 ## Crear primer admin
 
