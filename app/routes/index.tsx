@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { FiCalendar, FiImage, FiLogIn, FiLogOut, FiMinus, FiPlus, FiUser, FiUsers } from "react-icons/fi";
+import { FiCalendar, FiImage, FiLogIn, FiLogOut, FiMenu, FiMinus, FiPlus, FiUser, FiUsers, FiX } from "react-icons/fi";
 import { GameCanvas, type GameCanvasHandle } from "~/components/GameCanvas/GameCanvas";
 import {
   completeSignup,
@@ -15,6 +15,29 @@ import {
 } from "~/shared/client-api";
 import { Drawer } from "vaul";
 
+function resolveBrandingLogo() {
+  const raw = (import.meta as any).env?.VITE_BRANDING_DIR ?? "/branding/default";
+  const trimmed = typeof raw === "string" ? raw.trim() : "/branding/default";
+  if (!trimmed) return "/branding/default/favicon.svg";
+  const normalized = trimmed.replace(/\/+$/, "");
+  if (normalized.startsWith("/public/")) return `${normalized.replace(/^\/public/, "")}/favicon.svg`;
+  if (normalized.startsWith("public/")) return `/${normalized.replace(/^public\//, "")}/favicon.svg`;
+  if (normalized.startsWith("/")) return `${normalized}/favicon.svg`;
+  if (normalized.startsWith("branding/")) return `/${normalized}/favicon.svg`;
+  return `/branding/${normalized}/favicon.svg`;
+}
+
+function resolveBackgroundImage() {
+  const raw = (import.meta as any).env?.VITE_BACKGROUND_IMAGE ?? "";
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (!trimmed) return "";
+  const normalized = trimmed.replace(/\/+$/, "");
+  if (normalized.startsWith("/public/")) return normalized.replace(/^\/public/, "");
+  if (normalized.startsWith("public/")) return `/${normalized.replace(/^public\//, "")}`;
+  if (normalized.startsWith("/")) return normalized;
+  return `/${normalized}`;
+}
+
 export default function IndexRoute() {
   const [items, setItems] = useState<Array<{
     id: string;
@@ -26,6 +49,7 @@ export default function IndexRoute() {
     dateTaken?: string | null;
     dateEffective?: string;
     hidden?: boolean;
+    visibility?: "PUBLIC" | "PRIVATE";
   }>>([]);
   const [year, setYear] = useState("");
   const [month, setMonth] = useState("");
@@ -46,6 +70,7 @@ export default function IndexRoute() {
   const [tagFilter, setTagFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [zoom, setZoom] = useState(1);
+  const [menuOpen, setMenuOpen] = useState(false);
   const canvasRef = useRef<GameCanvasHandle | null>(null);
 
   const query = useMemo(() => {
@@ -73,7 +98,8 @@ export default function IndexRoute() {
             description: item.description,
             dateTaken: item.dateTaken ?? null,
             dateEffective: item.dateEffective,
-            hidden: item.hidden ?? false,
+            hidden: item.hidden ?? (!user && item.visibility === "PRIVATE"),
+            visibility: item.visibility,
           })),
         );
       })
@@ -105,38 +131,83 @@ export default function IndexRoute() {
     });
   }, [year, month, fromDate, toDate, typeFilter, tagFilter, categoryFilter]);
 
+  const backgroundImage = resolveBackgroundImage();
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#0c1020] text-slate-100">
+    <div
+      className="h-screen w-screen overflow-hidden bg-[#0c1020] text-slate-100"
+      style={
+        backgroundImage
+          ? {
+              backgroundImage: `url(${backgroundImage})`,
+              backgroundRepeat: "repeat",
+              backgroundSize: "auto",
+              backgroundPosition: "top left",
+            }
+          : undefined
+      }
+    >
       <a href="/" className="fixed left-6 top-6 z-30">
-        <img src="/logo.svg" alt="mega media" className="h-10 w-10" />
+        <img src={resolveBrandingLogo()} alt="mega media" className="h-10 w-10" />
       </a>
       {loading && <div className="absolute bottom-4 left-4 z-20 rounded bg-black/60 px-3 py-2">Loading media...</div>}
       <GameCanvas
         ref={canvasRef}
         items={items}
         onZoomChange={(value) => setZoom(value)}
+        hasBackground={Boolean(backgroundImage)}
       />
-      <div className="pointer-events-none absolute bottom-6 right-6 z-30 flex flex-col-reverse items-end gap-3">
-        <CircleButton
-          onClick={() => {
-            if (user) {
-              setShowMenu(true);
-            } else {
-              setShowLogin(true);
-            }
-          }}
-          label={user ? initialsFromEmail(user.email) : ""}
-          icon={!user ? <FiUser /> : undefined}
-        />
-        <CircleButton onClick={() => setShowFilters(true)} icon={<FiCalendar />} />
-        <CircleButton onClick={() => canvasRef.current?.zoomOut()} icon={<FiMinus />} />
-        <CircleButton
-          onClick={() => canvasRef.current?.resetView()}
-          label={`${Math.round(zoom * 100)}%`}
-          subtle
-          compact
-        />
-        <CircleButton onClick={() => canvasRef.current?.zoomIn()} icon={<FiPlus />} />
+      <div className="pointer-events-none absolute bottom-6 right-6 z-30">
+        <div className="relative h-16 w-16">
+          <div
+            className={`pointer-events-none absolute inset-0 transition-opacity duration-200 ${
+              menuOpen ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <RadialItem position="top" open={menuOpen}>
+              <CircleButton onClick={() => canvasRef.current?.zoomIn()} icon={<FiPlus />} />
+            </RadialItem>
+            <RadialItem position="top-left" open={menuOpen}>
+              <CircleButton
+                onClick={() => canvasRef.current?.resetView()}
+                label={`${Math.round(zoom * 100)}%`}
+                subtle
+                compact
+              />
+            </RadialItem>
+            <RadialItem position="left" open={menuOpen}>
+              <CircleButton onClick={() => canvasRef.current?.zoomOut()} icon={<FiMinus />} />
+            </RadialItem>
+            <RadialItem position="top-left-far" open={menuOpen}>
+              <CircleButton onClick={() => setShowFilters(true)} icon={<FiCalendar />} />
+            </RadialItem>
+            <RadialItem position="top-far" open={menuOpen}>
+              <CircleButton
+                onClick={() => {
+                  if (user) {
+                    setShowMenu(true);
+                  } else {
+                    setShowLogin(true);
+                  }
+                }}
+                label={user ? initialsFromEmail(user.email) : ""}
+                icon={!user ? <FiUser /> : undefined}
+              />
+            </RadialItem>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((prev) => !prev)}
+            className={`pointer-events-auto absolute inset-0 flex h-14 w-14 items-center justify-center rounded-full border border-white/10 text-white shadow-lg backdrop-blur transition duration-200 ${
+              menuOpen ? "bg-black/80" : "bg-black/70 hover:bg-black/80"
+            }`}
+            style={{ transform: "translate(8px, 8px)" }}
+            aria-label="Menu"
+          >
+            <span className={`transition-transform duration-200 ${menuOpen ? "rotate-90" : "rotate-0"}`}>
+              {menuOpen ? <FiX /> : <FiMenu />}
+            </span>
+          </button>
+        </div>
       </div>
 
       {showLogin ? (
@@ -243,6 +314,36 @@ function CircleButton({
     >
       {icon ?? label}
     </button>
+  );
+}
+
+function RadialItem({
+  position,
+  open,
+  children,
+}: {
+  position: "top" | "top-left" | "left" | "top-far" | "top-left-far";
+  open: boolean;
+  children: ReactNode;
+}) {
+  const distance = 76;
+  const offsets: Record<typeof position, { x: number; y: number }> = {
+    top: { x: 0, y: -distance },
+    "top-left": { x: -distance * 0.75, y: -distance * 0.75 },
+    left: { x: -distance, y: 0 },
+    "top-far": { x: 0, y: -distance * 1.7 },
+    "top-left-far": { x: -distance * 1.3, y: -distance * 1.3 },
+  };
+  const { x, y } = offsets[position];
+  return (
+    <div
+      className={`pointer-events-auto absolute left-1/2 top-1/2 transition-all duration-200 ${
+        open ? "opacity-100 scale-100" : "opacity-0 scale-75"
+      }`}
+      style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px)` }}
+    >
+      {children}
+    </div>
   );
 }
 

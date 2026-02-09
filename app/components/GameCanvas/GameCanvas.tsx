@@ -22,9 +22,9 @@ type CameraAnimation = {
 
 const TILE_BASE = 180;
 const GAP = 12;
-const DEFAULT_SIDE_PADDING = 72;
+const DEFAULT_SIDE_PADDING = 0;
 const MIN_ZOOM = 0.10;
-const MAX_ZOOM = 15;
+const MAX_ZOOM = 3;
 const HIGH_ZOOM_RESET = 2.2;
 const AUTO_INFO_ZOOM = 2.0;
 const AUTO_INFO_VISIBLE = 0.12;
@@ -39,8 +39,8 @@ export type GameCanvasHandle = {
 
 export const GameCanvas = forwardRef<
   GameCanvasHandle,
-  { items: GridMediaItem[]; onZoomChange?: (zoom: number) => void }
->(function GameCanvas({ items, onZoomChange }, ref) {
+  { items: GridMediaItem[]; onZoomChange?: (zoom: number) => void; hasBackground?: boolean }
+>(function GameCanvas({ items, onZoomChange, hasBackground }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<any>(null);
   const worldRef = useRef<any>(null);
@@ -50,11 +50,25 @@ export const GameCanvas = forwardRef<
   const lodRef = useRef(new Map<string, 0 | 1 | 2 | 3 | 4>());
   const urlRef = useRef(new Map<string, string>());
   const loadingIdsRef = useRef(new Set<string>());
+  const tilesRef = useRef<Tile[]>([]);
+  const boundsRef = useRef<{ minX: number; minY: number; maxX: number; maxY: number }>({
+    minX: 0,
+    minY: 0,
+    maxX: 1,
+    maxY: 1,
+  });
+  const pendingDrawRef = useRef(false);
+  const appReadyRef = useRef(false);
+  const hasUserInteractedRef = useRef(false);
+  const sizeReadyRef = useRef(false);
   const playTextureRef = useRef<any>(null);
   const videoIconTextureRef = useRef<any>(null);
   const lockTextureRef = useRef<any>(null);
   const cameraRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
   const [overlay, setOverlay] = useState<OverlayState | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [focusedRect, setFocusedRect] = useState<OverlayState["rect"] | null>(null);
+  const focusedRectRef = useRef<OverlayState["rect"] | null>(null);
   const focusedIdRef = useRef<string | null>(null);
   const focusInterruptedRef = useRef(false);
   const drawVisibleRef = useRef<() => void>(() => undefined);
@@ -64,29 +78,58 @@ export const GameCanvas = forwardRef<
   const tiles = useMemo(() => layoutTiles(items), [items]);
   const bounds = useMemo(() => contentBounds(tiles), [tiles]);
 
-  const centerContent = useCallback(
-    (width: number, height: number) => {
-      const camera = cameraRef.current;
-      if (!tiles.length) return;
-      const contentWidth = bounds.maxX - bounds.minX;
-      const contentHeight = bounds.maxY - bounds.minY;
-      const availableWidth = Math.max(1, width - DEFAULT_SIDE_PADDING * 2);
-      const fitZoomX = contentWidth > 0 ? availableWidth / contentWidth : 1;
-      const fitZoomY = contentHeight > 0 ? height / contentHeight : 1;
-      const targetZoom = Math.min(1, fitZoomX, fitZoomY);
-      camera.zoom = targetZoom;
-      camera.x =
-        DEFAULT_SIDE_PADDING +
-        (availableWidth - contentWidth * targetZoom) / 2 -
-        bounds.minX * targetZoom;
-      camera.y = height / 2 - (bounds.minY + bounds.maxY) / 2 * targetZoom;
-    },
-    [tiles, bounds],
-  );
+  const centerContent = useCallback((width: number, height: number) => {
+    const camera = cameraRef.current;
+    const tiles = tilesRef.current;
+    const bounds = boundsRef.current;
+    if (!tiles.length) return;
+    const contentWidth = bounds.maxX - bounds.minX;
+    const contentHeight = bounds.maxY - bounds.minY;
+    const availableWidth = Math.max(1, width - DEFAULT_SIDE_PADDING * 2);
+    const fitZoomY = contentHeight > 0 ? height / contentHeight : 1;
+    const targetZoom = Math.min(1, fitZoomY);
+    camera.zoom = targetZoom;
+    camera.x =
+      DEFAULT_SIDE_PADDING +
+      (availableWidth - contentWidth * targetZoom) / 2 -
+      bounds.minX * targetZoom;
+    camera.y = height / 2 - (bounds.minY + bounds.maxY) / 2 * targetZoom;
+  }, [tiles, bounds
+  ]);
 
   useEffect(() => {
     overlayRef.current = overlay;
   }, [overlay]);
+
+  useEffect(() => {
+    tilesRef.current = tiles;
+    boundsRef.current = bounds;
+    if (
+      appReadyRef.current &&
+      !hasUserInteractedRef.current &&
+      !focusedIdRef.current &&
+      !overlayRef.current
+    ) {
+      const host = hostRef.current;
+      if (host) {
+        const rect = host.getBoundingClientRect();
+        const width = rect.width || host.clientWidth || window.innerWidth;
+        const height = rect.height || host.clientHeight || window.innerHeight;
+        if (!width || !height) return;
+        sizeReadyRef.current = true;
+        centerContent(width, height);
+        if (worldRef.current) {
+          worldRef.current.position.set(cameraRef.current.x, cameraRef.current.y);
+          worldRef.current.scale.set(cameraRef.current.zoom);
+        }
+      }
+    }
+    if (appReadyRef.current && sizeReadyRef.current) {
+      requestAnimationFrame(() => drawVisibleRef.current());
+    } else {
+      pendingDrawRef.current = true;
+    }
+  }, [tiles, bounds]);
 
   useEffect(() => {
     if (!focusedIdRef.current) return;
@@ -144,16 +187,47 @@ export const GameCanvas = forwardRef<
       world = new ContainerCtor();
       world.sortableChildren = true;
 
-      await app.init({ resizeTo: host as HTMLElement, antialias: true, backgroundAlpha: 1, backgroundColor: 0x000000 });
+      await app.init({
+        resizeTo: host as HTMLElement,
+        antialias: true,
+        backgroundAlpha: hasBackground ? 0 : 1,
+        backgroundColor: 0x000000,
+      });
       appInitialized = true;
       if (!mounted) return;
       host.appendChild(app.canvas);
       app.stage.addChild(world);
       appRef.current = app;
       worldRef.current = world;
+      appReadyRef.current = true;
+      if (host.clientWidth > 0 && host.clientHeight > 0) {
+        sizeReadyRef.current = true;
+      }
 
-      centerContent(host.clientWidth, host.clientHeight);
-      drawVisible();
+      const scheduleLayout = () => {
+        if (!host) return;
+        const rect = host.getBoundingClientRect();
+        const width = rect.width || host.clientWidth || window.innerWidth;
+        const height = rect.height || host.clientHeight || window.innerHeight;
+        if (!width || !height) return;
+        sizeReadyRef.current = true;
+        centerContent(width, height);
+        if (worldRef.current) {
+          worldRef.current.position.set(cameraRef.current.x, cameraRef.current.y);
+          worldRef.current.scale.set(cameraRef.current.zoom);
+        }
+        void drawVisible();
+      };
+      const ensureSized = () => {
+        if (!host) return;
+        const rect = host.getBoundingClientRect();
+        if ((rect.width || host.clientWidth) === 0 || (rect.height || host.clientHeight) === 0) {
+          requestAnimationFrame(ensureSized);
+          return;
+        }
+        scheduleLayout();
+      };
+      requestAnimationFrame(() => requestAnimationFrame(ensureSized));
       onZoomChangeRef.current?.(cameraRef.current.zoom);
 
       let dragging = false;
@@ -165,6 +239,7 @@ export const GameCanvas = forwardRef<
       let pinchScreenCenter = { x: 0, y: 0 };
 
       const onPointerDown = (event: PointerEvent) => {
+        hasUserInteractedRef.current = true;
         pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
         host.setPointerCapture(event.pointerId);
         dragging = true;
@@ -186,6 +261,7 @@ export const GameCanvas = forwardRef<
           pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
         }
         if (pointers.size === 2) {
+          hasUserInteractedRef.current = true;
           if (overlayRef.current) {
             closeVideoOverlay();
           }
@@ -201,6 +277,7 @@ export const GameCanvas = forwardRef<
             const cy = (a.y + b.y) / 2 - hostRect.top;
             cameraRef.current.x = cx - pinchWorldCenter.x * nextZoom;
             cameraRef.current.y = cy - pinchWorldCenter.y * nextZoom;
+            clampCamera(hostRect.width, hostRect.height);
             pinchDistance = nextDistance;
             drawVisible();
             onZoomChangeRef.current?.(cameraRef.current.zoom);
@@ -211,6 +288,7 @@ export const GameCanvas = forwardRef<
         if (overlayRef.current) {
           closeVideoOverlay();
         }
+        hasUserInteractedRef.current = true;
         interruptFocus();
         const dx = event.clientX - lastX;
         const dy = event.clientY - lastY;
@@ -218,6 +296,7 @@ export const GameCanvas = forwardRef<
         lastY = event.clientY;
         cameraRef.current.x += dx;
         cameraRef.current.y += dy;
+        clampCamera(host.clientWidth, host.clientHeight);
         drawVisible();
         onZoomChangeRef.current?.(cameraRef.current.zoom);
       };
@@ -230,6 +309,7 @@ export const GameCanvas = forwardRef<
 
       const onWheel = (event: WheelEvent) => {
         event.preventDefault();
+        hasUserInteractedRef.current = true;
         if (overlayRef.current) {
           closeVideoOverlay();
         }
@@ -247,6 +327,7 @@ export const GameCanvas = forwardRef<
         cameraRef.current.zoom = nextZoom;
         cameraRef.current.x = pointerX - worldX * nextZoom;
         cameraRef.current.y = pointerY - worldY * nextZoom;
+        clampCamera(hostRect.width, hostRect.height);
 
         drawVisible();
         onZoomChangeRef.current?.(cameraRef.current.zoom);
@@ -254,7 +335,7 @@ export const GameCanvas = forwardRef<
 
       const onClick = async (event: MouseEvent) => {
         if (event.detail > 1) return;
-        const tile = hitTest(tiles, event.clientX, event.clientY, host.getBoundingClientRect(), cameraRef.current);
+        const tile = hitTest(tilesRef.current, event.clientX, event.clientY, host.getBoundingClientRect(), cameraRef.current);
         if (!tile || tile.item.hidden) return;
         if (tile.item.type !== "video") return;
         const pixelSize = tile.w * cameraRef.current.zoom;
@@ -274,6 +355,7 @@ export const GameCanvas = forwardRef<
       };
 
       const onDoubleClick = async (event: MouseEvent) => {
+        hasUserInteractedRef.current = true;
         if (focusInterruptedRef.current) {
           resetView();
           return;
@@ -282,7 +364,7 @@ export const GameCanvas = forwardRef<
           resetView();
           return;
         }
-        const tile = hitTest(tiles, event.clientX, event.clientY, host.getBoundingClientRect(), cameraRef.current);
+        const tile = hitTest(tilesRef.current, event.clientX, event.clientY, host.getBoundingClientRect(), cameraRef.current);
         if (!tile || tile.item.hidden) {
           clearFocus();
           return;
@@ -293,23 +375,7 @@ export const GameCanvas = forwardRef<
           return;
         }
 
-        focusOnTile(tile);
-
-        if (tile.item.type === "video") {
-          try {
-            const data = await getVideoPlayback(tile.item.id);
-            setOverlay({
-              id: tile.item.id,
-              playbackUrl: data.playbackUrl,
-              posterUrl: data.posterUrl,
-              rect: tileToScreenRect(tile, cameraRef.current),
-            });
-          } catch {
-            // no-op
-          }
-        } else {
-          setOverlay(null);
-        }
+        goToTile(tile);
       };
 
       const onResize = () => {
@@ -341,7 +407,7 @@ export const GameCanvas = forwardRef<
           if (t >= 1) activeAnimationRef.current = null;
         }
         if (overlayRef.current) {
-          const tile = tiles.find((value) => value.item.id === overlayRef.current?.id);
+          const tile = tilesRef.current.find((value) => value.item.id === overlayRef.current?.id);
           if (tile && host) {
             const rect = tileToScreenRect(tile, cameraRef.current);
             setOverlay((prev) => (prev ? { ...prev, rect } : prev));
@@ -367,8 +433,30 @@ export const GameCanvas = forwardRef<
       };
       app.ticker.add(ticker);
 
+      const resizeObserver = new ResizeObserver(() => {
+        if (!host) return;
+        const rect = host.getBoundingClientRect();
+        const width = rect.width || host.clientWidth || window.innerWidth;
+        const height = rect.height || host.clientHeight || window.innerHeight;
+        if (!width || !height) return;
+        sizeReadyRef.current = true;
+        if (!hasUserInteractedRef.current && !focusedIdRef.current && !overlayRef.current) {
+          centerContent(width, height);
+        }
+        if (worldRef.current) {
+          worldRef.current.position.set(cameraRef.current.x, cameraRef.current.y);
+          worldRef.current.scale.set(cameraRef.current.zoom);
+        }
+        if (pendingDrawRef.current) {
+          pendingDrawRef.current = false;
+        }
+        requestAnimationFrame(() => drawVisible());
+      });
+      resizeObserver.observe(host);
+
       return () => {
         app.ticker.remove(ticker);
+        resizeObserver.disconnect();
         host.removeEventListener("pointerdown", onPointerDown);
         window.removeEventListener("pointermove", onPointerMove);
         window.removeEventListener("pointerup", onPointerUp);
@@ -395,6 +483,8 @@ export const GameCanvas = forwardRef<
       }
       appRef.current = null;
       worldRef.current = null;
+      appReadyRef.current = false;
+      sizeReadyRef.current = false;
     };
 
     async function drawVisible() {
@@ -406,7 +496,7 @@ export const GameCanvas = forwardRef<
       world.scale.set(cameraRef.current.zoom);
 
       const hostRect = host.getBoundingClientRect();
-      const visible = visibleTiles(tiles, hostRect.width, hostRect.height, cameraRef.current);
+      const visible = visibleTiles(tilesRef.current, hostRect.width, hostRect.height, cameraRef.current);
       const visibleSet = new Set(visible.map((tile) => tile.item.id));
 
       for (const [id, sprite] of spritesRef.current.entries()) {
@@ -601,15 +691,29 @@ export const GameCanvas = forwardRef<
           loadingIdsRef.current.delete(tile.item.id);
         }
       }
+
+      updateFocusedRect(hostRect);
     }
 
     drawVisibleRef.current = () => {
       void drawVisible();
     };
-  }, [tiles, bounds, centerContent]);
+    if (pendingDrawRef.current) {
+      pendingDrawRef.current = false;
+      requestAnimationFrame(() => drawVisible());
+    }
+  }, [centerContent]);
+
+  const focusedIndex = useMemo(() => {
+    if (!focusedId) return -1;
+    return tiles.findIndex((tile) => tile.item.id === focusedId);
+  }, [tiles, focusedId]);
+
+  const prevTile = useMemo(() => findAdjacentTile(-1), [tiles, focusedIndex]);
+  const nextTile = useMemo(() => findAdjacentTile(1), [tiles, focusedIndex]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-black">
+    <div className={`relative h-full w-full overflow-hidden ${hasBackground ? "bg-transparent" : "bg-black"}`}>
       <div ref={hostRef} className="h-full w-full touch-none" />
       {overlay ? (
         <VideoOverlay
@@ -618,6 +722,26 @@ export const GameCanvas = forwardRef<
           rect={overlay.rect}
           onClose={() => setOverlay(null)}
         />
+      ) : null}
+      {focusedRect && prevTile ? (
+        <button
+          className="pointer-events-auto absolute z-30 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/60 text-white shadow-lg backdrop-blur transition hover:bg-black/80"
+          style={navButtonStyle(focusedRect, "prev")}
+          onClick={() => goToTile(prevTile)}
+          aria-label="Previous"
+        >
+          ‹
+        </button>
+      ) : null}
+      {focusedRect && nextTile ? (
+        <button
+          className="pointer-events-auto absolute z-30 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/60 text-white shadow-lg backdrop-blur transition hover:bg-black/80"
+          style={navButtonStyle(focusedRect, "next")}
+          onClick={() => goToTile(nextTile)}
+          aria-label="Next"
+        >
+          ›
+        </button>
       ) : null}
       {null}
     </div>
@@ -638,6 +762,7 @@ export const GameCanvas = forwardRef<
     cameraRef.current.zoom = nextZoom;
     cameraRef.current.x = centerX - worldX * nextZoom;
     cameraRef.current.y = centerY - worldY * nextZoom;
+    clampCamera(host.clientWidth, host.clientHeight);
 
     if (worldRef.current) {
       worldRef.current.position.set(cameraRef.current.x, cameraRef.current.y);
@@ -654,6 +779,7 @@ export const GameCanvas = forwardRef<
     clearFocus();
     focusInterruptedRef.current = false;
     centerContent(host.clientWidth, host.clientHeight);
+    clampCamera(host.clientWidth, host.clientHeight);
     if (worldRef.current) {
       worldRef.current.position.set(cameraRef.current.x, cameraRef.current.y);
       worldRef.current.scale.set(cameraRef.current.zoom);
@@ -680,10 +806,14 @@ export const GameCanvas = forwardRef<
       to: { x: targetX, y: targetY, zoom: targetZoom },
     };
     focusedIdRef.current = tile.item.id;
+    setFocusedId(tile.item.id);
   }
 
   function clearFocus() {
     focusedIdRef.current = null;
+    setFocusedId(null);
+    focusedRectRef.current = null;
+    setFocusedRect(null);
     setOverlay(null);
     drawVisibleRef.current();
   }
@@ -696,6 +826,96 @@ export const GameCanvas = forwardRef<
     if (!focusedIdRef.current) return;
     focusInterruptedRef.current = true;
     clearFocus();
+  }
+
+  function clampCamera(width: number, height: number) {
+    const bounds = boundsRef.current;
+    const zoom = cameraRef.current.zoom;
+    const padding = 80;
+    const minX = width - padding - bounds.maxX * zoom;
+    const maxX = padding - bounds.minX * zoom;
+    const minY = height - padding - bounds.maxY * zoom;
+    const maxY = padding - bounds.minY * zoom;
+
+    if (minX > maxX) {
+      cameraRef.current.x = (minX + maxX) / 2;
+    } else {
+      cameraRef.current.x = clamp(cameraRef.current.x, minX, maxX);
+    }
+    if (minY > maxY) {
+      cameraRef.current.y = (minY + maxY) / 2;
+    } else {
+      cameraRef.current.y = clamp(cameraRef.current.y, minY, maxY);
+    }
+  }
+
+  function updateFocusedRect(hostRect: DOMRect) {
+    const activeId = focusedIdRef.current;
+    if (!activeId) {
+      if (focusedRectRef.current) {
+        focusedRectRef.current = null;
+        setFocusedRect(null);
+      }
+      return;
+    }
+    const tile = tilesRef.current.find((value) => value.item.id === activeId);
+    if (!tile) return;
+    const rect = tileToScreenRect(tile, cameraRef.current);
+    const prev = focusedRectRef.current;
+    if (!prev || rectDiff(prev, rect) > 0.5) {
+      focusedRectRef.current = rect;
+      setFocusedRect(rect);
+    }
+  }
+
+  function rectDiff(a: OverlayState["rect"], b: OverlayState["rect"]) {
+    return Math.max(
+      Math.abs(a.left - b.left),
+      Math.abs(a.top - b.top),
+      Math.abs(a.width - b.width),
+      Math.abs(a.height - b.height),
+    );
+  }
+
+  function goToTile(tile: Tile) {
+    if (overlayRef.current) closeVideoOverlay();
+    focusOnTile(tile);
+    if (tile.item.type === "video") {
+      getVideoPlayback(tile.item.id)
+        .then((data) => {
+          setOverlay({
+            id: tile.item.id,
+            playbackUrl: data.playbackUrl,
+            posterUrl: data.posterUrl,
+            rect: tileToScreenRect(tile, cameraRef.current),
+          });
+        })
+        .catch(() => undefined);
+    } else {
+      setOverlay(null);
+    }
+  }
+
+  function findAdjacentTile(direction: -1 | 1) {
+    if (focusedIndex < 0) return null;
+    for (let i = focusedIndex + direction; i >= 0 && i < tiles.length; i += direction) {
+      const candidate = tiles[i];
+      if (!candidate.item.hidden) return candidate;
+    }
+    return null;
+  }
+
+  function navButtonStyle(rect: OverlayState["rect"], side: "prev" | "next") {
+    const host = hostRef.current;
+    const hostWidth = host?.clientWidth ?? 0;
+    const hostHeight = host?.clientHeight ?? 0;
+    const size = 44;
+    const offset = 10;
+    const rawLeft = side === "prev" ? rect.left - size - offset : rect.left + rect.width + offset;
+    const left = hostWidth ? clamp(rawLeft, 8, hostWidth - size - 8) : rawLeft;
+    const rawTop = rect.top + rect.height / 2 - size / 2;
+    const top = hostHeight ? clamp(rawTop, 8, hostHeight - size - 8) : rawTop;
+    return { left, top };
   }
 
   function computeSpriteAlpha(tile: Tile, hostRect: DOMRect, camera: Camera) {
@@ -817,17 +1037,8 @@ function positionLockSprite(
   if (!lock) {
     if (!lockTextureRef.current) {
       const svg = encodeURIComponent(
-        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
-          `<defs>` +
-            `<radialGradient id="g" cx="50%" cy="45%" r="60%">` +
-              `<stop offset="0%" stop-color="rgba(15,23,42,0.25)"/>` +
-              `<stop offset="100%" stop-color="rgba(15,23,42,0.8)"/>` +
-            `</radialGradient>` +
-          `</defs>` +
-          `<circle cx="32" cy="32" r="30" fill="url(#g)"/>` +
-          `<rect x="18" y="28" width="28" height="22" rx="6" fill="rgba(15,23,42,0.55)" stroke="rgba(248,250,252,0.75)" stroke-width="3"/>` +
-          `<path d="M24 28v-6a8 8 0 0 1 16 0v6" fill="none" stroke="rgba(248,250,252,0.85)" stroke-width="4" stroke-linecap="round"/>` +
-          `<circle cx="32" cy="39" r="3" fill="rgba(248,250,252,0.85)"/>` +
+        `<svg fill="#777" width="800px" height="800px" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" enable-background="new 0 0 24 24">` +
+          `<path d="M17,9V7c0-2.8-2.2-5-5-5S7,4.2,7,7v2c-1.7,0-3,1.3-3,3v7c0,1.7,1.3,3,3,3h10c1.7,0,3-1.3,3-3v-7C20,10.3,18.7,9,17,9z M9,7c0-1.7,1.3-3,3-3s3,1.3,3,3v2H9V7z M13.1,15.5c0,0-0.1,0.1-0.1,0.1V17c0,0.6-0.4,1-1,1s-1-0.4-1-1v-1.4c-0.6-0.6-0.7-1.5-0.1-2.1c0.6-0.6,1.5-0.7,2.1-0.1C13.6,13.9,13.7,14.9,13.1,15.5z"/>` +
         `</svg>`,
       );
       lockTextureRef.current = TextureCtor.from(`data:image/svg+xml,${svg}`);
@@ -842,13 +1053,15 @@ function positionLockSprite(
   lock.visible = hidden;
   if (!hidden) return;
 
-  const minWorld = Math.max(18 / camera.zoom, 0);
-  const base = Math.min(tile.w, tile.h) * 0.28;
-  const size = Math.max(minWorld, Math.min(base, Math.min(tile.w, tile.h) * 0.6));
-  lock.width = size;
-  lock.height = size;
+  const baseScaleX = sprite.scale.x || 1;
+  const baseScaleY = sprite.scale.y || 1;
+  const maxWorld = Math.min(tile.w, tile.h) * 0.55;
+  const sizeX = Math.min(36 / (camera.zoom * baseScaleX), maxWorld);
+  const sizeY = Math.min(36 / (camera.zoom * baseScaleY), maxWorld);
+  lock.width = sizeX;
+  lock.height = sizeY;
   lock.position.set(tile.w / 2, tile.h / 2);
-  lock.alpha = Math.max(0.78, sprite.alpha ?? 1);
+  lock.alpha = 1;
 }
 
 function ensureInfoOverlay(sprite: any, TextCtor: any, GraphicsCtor: any, ContainerCtor: any) {
@@ -857,21 +1070,24 @@ function ensureInfoOverlay(sprite: any, TextCtor: any, GraphicsCtor: any, Contai
   const group = new ContainerCtor();
   group.zIndex = 6;
   const bg = new GraphicsCtor();
-  const title = new TextCtor("", {
+  const baseTextStyle = {
     fontFamily: "\"Poppins\", \"Space Grotesk\", \"Inter\", sans-serif",
-    fontSize: 14,
     fill: 0xffffff,
     fontWeight: "600",
     wordWrap: true,
+    resolution: 3,
+  };
+  const title = new TextCtor("", {
+    ...baseTextStyle,
+    fontSize: 14,
   });
   const desc = new TextCtor("", {
-    fontFamily: "\"Poppins\", \"Space Grotesk\", \"Inter\", sans-serif",
+    ...baseTextStyle,
     fontSize: 10,
     fill: 0xe2e8f0,
-    wordWrap: true,
   });
   const date = new TextCtor("", {
-    fontFamily: "\"Poppins\", \"Space Grotesk\", \"Inter\", sans-serif",
+    ...baseTextStyle,
     fontSize: 9,
     fill: 0xcbd5f5,
     wordWrap: false,
@@ -934,7 +1150,7 @@ function updateInfoOverlay({
   const paddingY = isFocused ? 8 : 6;
   const maxWidth = Math.max(60, tile.w - paddingX * 2);
 
-  overlay.title.style.fontSize = isFocused ? 13 : 9;
+  overlay.title.style.fontSize = isFocused ? 11 : 10;
   overlay.desc.style.fontSize = isFocused ? 10 : 8;
   overlay.date.style.fontSize = isFocused ? 8 : 7;
 

@@ -4,6 +4,7 @@ export type GridMediaItem = {
   aspect: number;
   status: "processing" | "ready" | "error";
   hidden?: boolean;
+  visibility?: "PUBLIC" | "PRIVATE";
   title?: string;
   description?: string;
   dateTaken?: string | null;

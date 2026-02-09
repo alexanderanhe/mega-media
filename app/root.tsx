@@ -10,10 +10,26 @@ import {
 import type { Route } from "./+types/root";
 import "./app.css";
 
+function resolveBrandingBase() {
+  const raw = (import.meta as any).env?.VITE_BRANDING_DIR ?? "/branding/default";
+  const trimmed = typeof raw === "string" ? raw.trim() : "/branding/default";
+  if (!trimmed) return "/branding/default";
+  const normalized = trimmed.replace(/\/+$/, "");
+  if (normalized.startsWith("/public/")) {
+    return normalized.replace(/^\/public/, "");
+  }
+  if (normalized.startsWith("public/")) {
+    return `/${normalized.replace(/^public\//, "")}`;
+  }
+  if (normalized.startsWith("/")) return normalized;
+  if (normalized.startsWith("branding/")) return `/${normalized}`;
+  return `/branding/${normalized}`;
+}
+
 export const links: Route.LinksFunction = () => [
-  { rel: "manifest", href: "/manifest.webmanifest" },
-  { rel: "icon", type: "image/svg+xml", href: "/logo.svg" },
-  { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png" },
+  { rel: "manifest", href: `${resolveBrandingBase()}/manifest.webmanifest` },
+  { rel: "icon", type: "image/svg+xml", href: `${resolveBrandingBase()}/favicon.svg` },
+  { rel: "apple-touch-icon", href: `${resolveBrandingBase()}/apple-touch-icon.png` },
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
   {
     rel: "preconnect",

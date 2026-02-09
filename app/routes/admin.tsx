@@ -4,6 +4,18 @@ import type { Route } from "./+types/admin";
 import { requireAdminPage } from "~/server/guards";
 import { getMe, logout } from "~/shared/client-api";
 
+function resolveBrandingLogo() {
+  const raw = (import.meta as any).env?.VITE_BRANDING_DIR ?? "/branding/default";
+  const trimmed = typeof raw === "string" ? raw.trim() : "/branding/default";
+  if (!trimmed) return "/branding/default/favicon.svg";
+  const normalized = trimmed.replace(/\/+$/, "");
+  if (normalized.startsWith("/public/")) return `${normalized.replace(/^\/public/, "")}/favicon.svg`;
+  if (normalized.startsWith("public/")) return `/${normalized.replace(/^public\//, "")}/favicon.svg`;
+  if (normalized.startsWith("/")) return `${normalized}/favicon.svg`;
+  if (normalized.startsWith("branding/")) return `/${normalized}/favicon.svg`;
+  return `/branding/${normalized}/favicon.svg`;
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdminPage(request);
   return null;
@@ -21,7 +33,7 @@ export default function AdminLayout() {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="flex items-center justify-between border-b border-white/10 px-6 py-3">
         <a href="/" className="flex items-center gap-3">
-          <img src="/logo.svg" alt="mega media" className="h-10 w-10" />
+          <img src={resolveBrandingLogo()} alt="mega media" className="h-10 w-10" />
         </a>
         <nav className="flex items-center gap-4 text-sm">
           <a href="/">Grid</a>
