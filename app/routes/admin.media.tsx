@@ -802,9 +802,14 @@ export default function AdminMediaRoute() {
   async function handleUpload(files: File[]) {
     setUploading(true);
     try {
-      const capped = files.slice(0, 20);
-      if (files.length > 20) {
-        pushToast("Max 20 files per batch. Extra files were skipped.", "warning");
+      const availableSlots = Math.max(0, 20 - uploads.length);
+      if (availableSlots === 0) {
+        pushToast("Upload queue is full (max 20).", "warning");
+        return;
+      }
+      const capped = files.slice(0, availableSlots);
+      if (files.length > availableSlots) {
+        pushToast("Max 20 files in queue. Extra files were skipped.", "warning");
       }
 
       const batch = capped.map((file) => ({
@@ -814,7 +819,7 @@ export default function AdminMediaRoute() {
         progress: 0,
         status: "queued" as const,
       }));
-      setUploads(batch);
+      setUploads((prev) => [...prev, ...batch]);
 
       let successCount = 0;
       for (const file of capped) {
