@@ -1,5 +1,5 @@
 import { ApiError, jsonOk, optionalAuth, parseQuery, withApiErrorHandling } from "~/server/http";
-import { getCollections } from "~/server/db";
+import { getCollections, ObjectId } from "~/server/db";
 import { pageQuerySchema } from "~/server/schemas";
 
 export const loader = async ({ request }: { request: Request }) =>
@@ -35,8 +35,42 @@ export const loader = async ({ request }: { request: Request }) =>
       ];
     }
 
-    const { media } = await getCollections();
+    const { media, likes } = await getCollections();
     const skip = (query.page - 1) * query.pageSize;
+
+    if (query.liked && !auth) {
+      throw new ApiError(401, "Unauthorized");
+    }
+    if (query.featured && !auth) {
+      throw new ApiError(401, "Unauthorized");
+    }
+
+    let likedIds: ObjectId[] | null = null;
+    if (query.liked && auth?.sub) {
+      const rows = await likes.find({ userId: new ObjectId(auth.sub) }).project({ mediaId: 1 }).toArray();
+      likedIds = rows.map((row) => row.mediaId);
+      if (likedIds.length === 0) {
+        return jsonOk({ page: query.page, pageSize: query.pageSize, total: 0, items: [] });
+      }
+      filter._id = { $in: likedIds };
+    }
+
+    if (query.featured) {
+      const featuredIds = await likes.distinct("mediaId");
+      if (!featuredIds.length) {
+        return jsonOk({ page: query.page, pageSize: query.pageSize, total: 0, items: [] });
+      }
+      if (filter._id && typeof filter._id === "object" && (filter._id as any).$in) {
+        const current = new Set(((filter._id as any).$in as ObjectId[]).map((id) => id.toString()));
+        const next = featuredIds.filter((id) => current.has(id.toString()));
+        if (!next.length) {
+          return jsonOk({ page: query.page, pageSize: query.pageSize, total: 0, items: [] });
+        }
+        filter._id = { $in: next };
+      } else {
+        filter._id = { $in: featuredIds };
+      }
+    }
 
     const sort = resolveSort(query.sort);
     const [items, total] = await Promise.all([
@@ -69,6 +103,27 @@ export const loader = async ({ request }: { request: Request }) =>
       media.countDocuments(filter),
     ]);
 
+    let likedSet = new Set<string>();
+    let likesCountMap = new Map<string, number>();
+    if (auth?.sub && items.length) {
+      const itemIds = items.map((item) => item._id);
+      const likedRows = await likes
+        .find({ userId: new ObjectId(auth.sub), mediaId: { $in: itemIds } })
+        .project({ mediaId: 1 })
+        .toArray();
+      likedSet = new Set(likedRows.map((row) => row.mediaId.toString()));
+    }
+    if (items.length) {
+      const itemIds = items.map((item) => item._id);
+      const counts = await likes
+        .aggregate([
+          { $match: { mediaId: { $in: itemIds } } },
+          { $group: { _id: "$mediaId", count: { $sum: 1 } } },
+        ])
+        .toArray();
+      likesCountMap = new Map(counts.map((row) => [row._id.toString(), row.count as number]));
+    }
+
     return jsonOk({
       page: query.page,
       pageSize: query.pageSize,
@@ -94,6 +149,8 @@ export const loader = async ({ request }: { request: Request }) =>
         sizeBytes: auth ? pickSize(item) : undefined,
         variantSizes: auth ? pickVariantSizes(item) : undefined,
         durationSeconds: auth ? (item.preview?.duration ?? null) : null,
+        liked: auth ? likedSet.has(item._id.toString()) : false,
+        likesCount: likesCountMap.get(item._id.toString()) ?? 0,
       })),
     });
   })(request);

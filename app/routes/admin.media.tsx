@@ -60,6 +60,8 @@ export default function AdminMediaRoute() {
       error?: string;
     }>
   >([]);
+  const uploadQueueRef = useRef<File[]>([]);
+  const uploadingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
   const [dragActive, setDragActive] = useState(false);
@@ -73,6 +75,7 @@ export default function AdminMediaRoute() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [featuredOnly, setFeaturedOnly] = useState(false);
   const hasActiveFilters =
     Boolean(search.trim()) ||
     Boolean(fromDate) ||
@@ -80,6 +83,7 @@ export default function AdminMediaRoute() {
     Boolean(typeFilter) ||
     Boolean(tagFilter.trim()) ||
     Boolean(categoryFilter.trim()) ||
+    featuredOnly ||
     sort !== "date_desc";
   const [tagOptions, setTagOptions] = useState<string[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
@@ -146,6 +150,7 @@ export default function AdminMediaRoute() {
     if (typeFilter) query.set("type", typeFilter);
     if (tagFilter.trim()) query.set("tag", tagFilter.trim());
     if (categoryFilter.trim()) query.set("category", categoryFilter.trim());
+    if (featuredOnly) query.set("featured", "true");
     if (sort) query.set("sort", sort);
     getMediaPages(query).then((res) => {
       const nextItems = res.items.map((item) => ({
@@ -184,7 +189,7 @@ export default function AdminMediaRoute() {
 
   useEffect(() => {
     refresh();
-  }, [search, fromDate, toDate, typeFilter, tagFilter, categoryFilter, sort]);
+  }, [search, fromDate, toDate, typeFilter, tagFilter, categoryFilter, featuredOnly, sort]);
 
   useEffect(() => {
     void loadOptions();
@@ -246,6 +251,7 @@ export default function AdminMediaRoute() {
                 setTypeFilter("");
                 setCategoryFilter("");
                 setTagFilter("");
+                setFeaturedOnly(false);
                 setSort("date_desc");
               }}
               className="inline-flex items-center gap-2 rounded border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-200"
@@ -687,6 +693,20 @@ export default function AdminMediaRoute() {
                 </datalist>
               </div>
               <div>
+                <label className="text-xs uppercase text-slate-400">Featured</label>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFeaturedOnly((prev) => !prev)}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      featuredOnly ? "border-rose-400 bg-rose-500/20 text-rose-200" : "border-white/10 text-slate-300"
+                    }`}
+                  >
+                    {featuredOnly ? "Showing featured" : "Show featured only"}
+                  </button>
+                </div>
+              </div>
+              <div>
                 <label className="text-xs uppercase text-slate-400">Date range</label>
                 <div className="mt-2 grid gap-2">
                   <input
@@ -729,6 +749,7 @@ export default function AdminMediaRoute() {
                   setTypeFilter("");
                   setCategoryFilter("");
                   setTagFilter("");
+                  setFeaturedOnly(false);
                   setSort("date_desc");
                 }}
                 className="rounded border border-white/10 px-4 py-2"
@@ -800,29 +821,36 @@ export default function AdminMediaRoute() {
   }
 
   async function handleUpload(files: File[]) {
+    const availableSlots = Math.max(0, 20 - uploads.length);
+    if (availableSlots === 0) {
+      pushToast("Upload queue is full (max 20).", "warning");
+      return;
+    }
+    const capped = files.slice(0, availableSlots);
+    if (files.length > availableSlots) {
+      pushToast("Max 20 files in queue. Extra files were skipped.", "warning");
+    }
+
+    const batch = capped.map((file) => ({
+      key: `${file.name}-${file.size}-${file.lastModified}`,
+      name: file.name,
+      size: file.size,
+      progress: 0,
+      status: "queued" as const,
+    }));
+    setUploads((prev) => [...prev, ...batch]);
+    uploadQueueRef.current.push(...capped);
+    void processUploadQueue();
+  }
+
+  async function processUploadQueue() {
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
     setUploading(true);
+    let successCount = 0;
     try {
-      const availableSlots = Math.max(0, 20 - uploads.length);
-      if (availableSlots === 0) {
-        pushToast("Upload queue is full (max 20).", "warning");
-        return;
-      }
-      const capped = files.slice(0, availableSlots);
-      if (files.length > availableSlots) {
-        pushToast("Max 20 files in queue. Extra files were skipped.", "warning");
-      }
-
-      const batch = capped.map((file) => ({
-        key: `${file.name}-${file.size}-${file.lastModified}`,
-        name: file.name,
-        size: file.size,
-        progress: 0,
-        status: "queued" as const,
-      }));
-      setUploads((prev) => [...prev, ...batch]);
-
-      let successCount = 0;
-      for (const file of capped) {
+      while (uploadQueueRef.current.length) {
+        const file = uploadQueueRef.current.shift()!;
         const key = `${file.name}-${file.size}-${file.lastModified}`;
         setUploads((prev) =>
           prev.map((item) => (item.key === key ? { ...item, status: "uploading", progress: 0 } : item)),
@@ -851,16 +879,14 @@ export default function AdminMediaRoute() {
           );
         }
       }
-
+    } finally {
+      uploadingRef.current = false;
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       if (successCount > 0) {
         pushToast(`Queued ${successCount} file(s) for processing`, "success");
         refresh();
       }
-    } catch (err) {
-      pushToast(err instanceof Error ? err.message : "Upload failed", "error");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 

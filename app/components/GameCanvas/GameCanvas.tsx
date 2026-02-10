@@ -45,8 +45,9 @@ export const GameCanvas = forwardRef<
     hasBackground?: boolean;
     hasMore?: boolean;
     onEndReached?: () => void;
+    onToggleLike?: (id: string) => void;
   }
->(function GameCanvas({ items, onZoomChange, hasBackground, hasMore, onEndReached }, ref) {
+>(function GameCanvas({ items, onZoomChange, hasBackground, hasMore, onEndReached, onToggleLike }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<any>(null);
   const worldRef = useRef<any>(null);
@@ -74,8 +75,11 @@ export const GameCanvas = forwardRef<
   const [overlay, setOverlay] = useState<OverlayState | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [focusedRect, setFocusedRect] = useState<OverlayState["rect"] | null>(null);
+  const [hoveredRect, setHoveredRect] = useState<OverlayState["rect"] | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const focusedRectRef = useRef<OverlayState["rect"] | null>(null);
   const focusedIdRef = useRef<string | null>(null);
+  const hoveredIdRef = useRef<string | null>(null);
   const focusInterruptedRef = useRef(false);
   const drawVisibleRef = useRef<() => void>(() => undefined);
   const activeAnimationRef = useRef<CameraAnimation | null>(null);
@@ -108,6 +112,11 @@ export const GameCanvas = forwardRef<
 
   useEffect(() => {
     overlayRef.current = overlay;
+    if (overlay) {
+      hoveredIdRef.current = null;
+      setHoveredId(null);
+      setHoveredRect(null);
+    }
   }, [overlay]);
 
   useEffect(() => {
@@ -298,7 +307,34 @@ export const GameCanvas = forwardRef<
           }
           return;
         }
-        if (!dragging) return;
+        if (!dragging) {
+          if (event.pointerType === "mouse" && !overlayRef.current) {
+            const tile = hitTest(tilesRef.current, event.clientX, event.clientY, host.getBoundingClientRect(), cameraRef.current);
+            if (!tile || tile.item.hidden) {
+              if (hoveredIdRef.current) {
+                hoveredIdRef.current = null;
+                setHoveredId(null);
+                setHoveredRect(null);
+              }
+              return;
+            }
+            const pixelSize = tile.w * cameraRef.current.zoom;
+            if (pixelSize < 120) {
+              if (hoveredIdRef.current) {
+                hoveredIdRef.current = null;
+                setHoveredId(null);
+                setHoveredRect(null);
+              }
+              return;
+            }
+            if (hoveredIdRef.current !== tile.item.id) {
+              hoveredIdRef.current = tile.item.id;
+              setHoveredId(tile.item.id);
+            }
+            setHoveredRect(tileToScreenRect(tile, cameraRef.current));
+          }
+          return;
+        }
         if (overlayRef.current) {
           closeVideoOverlay();
         }
@@ -319,6 +355,12 @@ export const GameCanvas = forwardRef<
         pointers.delete(event.pointerId);
         if (pointers.size < 2) pinchDistance = 0;
         dragging = pointers.size > 0;
+      };
+
+      const onMouseLeave = () => {
+        hoveredIdRef.current = null;
+        setHoveredId(null);
+        setHoveredRect(null);
       };
 
       const onWheel = (event: WheelEvent) => {
@@ -405,6 +447,7 @@ export const GameCanvas = forwardRef<
       host.addEventListener("wheel", onWheel, { passive: false });
       host.addEventListener("click", onClick);
       host.addEventListener("dblclick", onDoubleClick);
+      host.addEventListener("mouseleave", onMouseLeave);
       window.addEventListener("resize", onResize);
 
       const ticker = () => {
@@ -477,6 +520,7 @@ export const GameCanvas = forwardRef<
         host.removeEventListener("wheel", onWheel);
         host.removeEventListener("click", onClick);
         host.removeEventListener("dblclick", onDoubleClick);
+        host.removeEventListener("mouseleave", onMouseLeave);
         window.removeEventListener("resize", onResize);
       };
     }
@@ -727,6 +771,17 @@ export const GameCanvas = forwardRef<
   const prevTile = useMemo(() => findAdjacentTile(-1), [tiles, focusedIndex]);
   const nextTile = useMemo(() => findAdjacentTile(1), [tiles, focusedIndex]);
 
+  const likeTarget = useMemo(() => {
+    if (overlay) return { id: overlay.id, rect: overlay.rect };
+    if (focusedRect && focusedId) return { id: focusedId, rect: focusedRect };
+    if (hoveredRect && hoveredId) return { id: hoveredId, rect: hoveredRect };
+    return null;
+  }, [overlay, focusedRect, focusedId, hoveredRect, hoveredId]);
+  const likeItem = useMemo(
+    () => (likeTarget ? items.find((item) => item.id === likeTarget.id) ?? null : null),
+    [items, likeTarget],
+  );
+
   return (
     <div className={`relative h-full w-full overflow-hidden ${hasBackground ? "bg-transparent" : "bg-black"}`}>
       <div ref={hostRef} className="h-full w-full touch-none" />
@@ -737,6 +792,57 @@ export const GameCanvas = forwardRef<
           rect={overlay.rect}
           onClose={() => setOverlay(null)}
         />
+      ) : null}
+      {likeTarget && likeItem && !likeItem.hidden ? (
+        <div
+          style={{
+            position: "absolute",
+            left: likeTarget.rect.left + likeTarget.rect.width - 46,
+            top: likeTarget.rect.top + 10,
+            zIndex: 26,
+          }}
+          className="pointer-events-auto flex items-center gap-2"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          onPointerUp={(event) => {
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <button
+            type="button"
+            aria-pressed={Boolean(likeItem.liked)}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              hasUserInteractedRef.current = true;
+              onToggleLike?.(likeItem.id);
+            }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              hasUserInteractedRef.current = true;
+            }}
+            onPointerUp={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            className={`flex h-9 w-9 items-center justify-center rounded-full border text-sm shadow-lg backdrop-blur ${
+              likeItem.liked
+                ? "border-rose-400/70 bg-rose-500/30 text-rose-200"
+                : "border-white/20 bg-black/70 text-white"
+            }`}
+            aria-label={likeItem.liked ? "Unlike" : "Like"}
+          >
+            ♥
+          </button>
+          <div className="rounded-full border border-white/10 bg-black/70 px-2 py-1 text-xs text-slate-100 shadow-lg backdrop-blur">
+            {formatLikeCount(likeItem.likesCount ?? 0)}
+          </div>
+        </div>
       ) : null}
       {focusedRect && prevTile ? (
         <button
@@ -1265,6 +1371,13 @@ function distance(a: { x: number; y: number }, b: { x: number; y: number }) {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+function formatLikeCount(value: number) {
+  if (!value) return "0";
+  if (value < 1000) return String(value);
+  if (value < 1_000_000) return `${(value / 1000).toFixed(1)}k`;
+  return `${(value / 1_000_000).toFixed(1)}m`;
 }
 
 function formatDateLabel(item: GridMediaItem) {

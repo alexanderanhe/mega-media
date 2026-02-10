@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { readAccessToken, verifyAccessToken } from "./auth";
+import { scheduleProcessingRecovery } from "./media-recovery";
+
+scheduleProcessingRecovery();
 
 export class ApiError extends Error {
   status: number;

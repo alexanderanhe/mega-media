@@ -1,5 +1,5 @@
 import { jsonOk, optionalAuth, parseQuery, withApiErrorHandling } from "~/server/http";
-import { getCollections } from "~/server/db";
+import { getCollections, ObjectId } from "~/server/db";
 import { z } from "zod";
 
 const facetsQuerySchema = z.object({
@@ -10,6 +10,7 @@ const facetsQuerySchema = z.object({
   type: z.enum(["image", "video"]).optional(),
   tag: z.string().max(64).optional(),
   category: z.string().max(64).optional(),
+  liked: z.coerce.boolean().optional(),
 });
 
 export const loader = async ({ request }: { request: Request }) =>
@@ -27,7 +28,19 @@ export const loader = async ({ request }: { request: Request }) =>
     if (query.tag) match.tags = normalizeToken(query.tag);
     if (query.category) match.category = normalizeToken(query.category);
 
-    const { media } = await getCollections();
+    const { media, likes } = await getCollections();
+
+    if (query.liked && !auth) {
+      return jsonOk({ years: [], months: [], tags: [], categories: [] });
+    }
+    if (query.liked && auth?.sub) {
+      const likedRows = await likes.find({ userId: new ObjectId(auth.sub) }).project({ mediaId: 1 }).toArray();
+      const likedIds = likedRows.map((row) => row.mediaId);
+      if (!likedIds.length) {
+        return jsonOk({ years: [], months: [], tags: [], categories: [] });
+      }
+      match._id = { $in: likedIds };
+    }
 
     const years = await media
       .aggregate([

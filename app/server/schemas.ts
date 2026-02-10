@@ -48,6 +48,8 @@ export const pageQuerySchema = z.object({
   tag: z.string().max(64).optional(),
   category: z.string().max(64).optional(),
   orientation: z.enum(["landscape", "portrait", "square"]).optional(),
+  liked: z.coerce.boolean().optional(),
+  featured: z.coerce.boolean().optional(),
   sort: z.enum(["date_desc", "date_asc", "size_desc", "size_asc", "title_asc", "title_desc"]).optional(),
 });
 

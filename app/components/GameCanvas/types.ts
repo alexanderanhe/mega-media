@@ -9,6 +9,8 @@ export type GridMediaItem = {
   description?: string;
   dateTaken?: string | null;
   dateEffective?: string;
+  liked?: boolean;
+  likesCount?: number;
 };
 
 export type Tile = {

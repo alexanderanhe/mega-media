@@ -45,6 +45,13 @@ type MediaCollectionDoc = {
   errorMessage?: string;
 };
 
+type LikeDoc = {
+  _id: ObjectId;
+  userId: ObjectId;
+  mediaId: ObjectId;
+  createdAt: Date;
+};
+
 let clientPromise: Promise<MongoClient> | null = null;
 let initializedPromise: Promise<void> | null = null;
 
@@ -77,12 +84,14 @@ export async function getCollections() {
   return {
     users: db.collection<UserDoc>("users"),
     media: db.collection<MediaCollectionDoc>("media"),
+    likes: db.collection<LikeDoc>("likes"),
   };
 }
 
 async function initialize(db: Awaited<ReturnType<typeof getDb>>) {
   const users = db.collection<UserDoc>("users");
   const media = db.collection<MediaCollectionDoc>("media");
+  const likes = db.collection<LikeDoc>("likes");
 
   await users.createIndex({ email: 1 }, { unique: true });
   await media.createIndex({ dateEffective: -1 });
@@ -93,6 +102,8 @@ async function initialize(db: Awaited<ReturnType<typeof getDb>>) {
     { fileHash: 1 },
     { unique: true, partialFilterExpression: { fileHash: { $type: "string" } } },
   );
+  await likes.createIndex({ userId: 1, mediaId: 1 }, { unique: true });
+  await likes.createIndex({ mediaId: 1 });
 
   const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
   const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
@@ -113,4 +124,4 @@ async function initialize(db: Awaited<ReturnType<typeof getDb>>) {
 }
 
 export { ObjectId };
-export type { UserDoc, MediaCollectionDoc };
+export type { UserDoc, MediaCollectionDoc, LikeDoc };

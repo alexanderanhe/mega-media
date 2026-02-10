@@ -30,6 +30,7 @@ export function VideoOverlay({
       <video
         ref={videoRef}
         controls
+        playsInline
         poster={posterUrl ?? undefined}
         src={playbackUrl}
         style={{

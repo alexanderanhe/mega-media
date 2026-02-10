@@ -8,8 +8,10 @@ import {
   getMediaFacets,
   getMediaPages,
   getMe,
+  likeMedia,
   login,
   logout,
+  unlikeMedia,
   requestAccess,
   verifyAccessCode,
 } from "~/shared/client-api";
@@ -50,6 +52,8 @@ export default function IndexRoute() {
     dateEffective?: string;
     hidden?: boolean;
     visibility?: "PUBLIC" | "PRIVATE";
+    liked?: boolean;
+    likesCount?: number;
   }>>([]);
   const [year, setYear] = useState("");
   const [month, setMonth] = useState("");
@@ -70,17 +74,32 @@ export default function IndexRoute() {
   const [orientationFilter, setOrientationFilter] = useState<"" | "landscape" | "portrait" | "square">("");
   const [tagFilter, setTagFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [likedOnly, setLikedOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pendingLike, setPendingLike] = useState<{ id: string; nextLiked: boolean } | null>(null);
   const canvasRef = useRef<GameCanvasHandle | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setYear(params.get("year") ?? "");
+    setMonth(params.get("month") ?? "");
+    setFromDate(params.get("from") ?? "");
+    setToDate(params.get("to") ?? "");
+    setTypeFilter((params.get("type") as "" | "image" | "video") ?? "");
+    setOrientationFilter((params.get("orientation") as "" | "landscape" | "portrait" | "square") ?? "");
+    setTagFilter(params.get("tag") ?? "");
+    setCategoryFilter(params.get("category") ?? "");
+    setLikedOnly(params.get("liked") === "true");
+  }, []);
 
   useEffect(() => {
     setPage(1);
     setHasMore(true);
     setItems([]);
-  }, [year, month, fromDate, toDate, typeFilter, orientationFilter, tagFilter, categoryFilter]);
+  }, [year, month, fromDate, toDate, typeFilter, orientationFilter, tagFilter, categoryFilter, likedOnly]);
 
   const query = useMemo(() => {
     const q = new URLSearchParams({ page: String(page), pageSize: "160" });
@@ -91,8 +110,9 @@ export default function IndexRoute() {
     if (orientationFilter) q.set("orientation", orientationFilter);
     if (tagFilter) q.set("tag", tagFilter);
     if (categoryFilter) q.set("category", categoryFilter);
+    if (likedOnly) q.set("liked", "true");
     return q;
-  }, [fromDate, toDate, typeFilter, orientationFilter, tagFilter, categoryFilter, page]);
+  }, [fromDate, toDate, typeFilter, orientationFilter, tagFilter, categoryFilter, likedOnly, page]);
 
   useEffect(() => {
     setLoading(true);
@@ -109,6 +129,8 @@ export default function IndexRoute() {
           dateEffective: item.dateEffective,
           hidden: item.hidden ?? (!user && item.visibility === "PRIVATE"),
           visibility: item.visibility,
+          liked: item.liked ?? false,
+          likesCount: item.likesCount ?? 0,
         }));
         setHasMore(page * 160 < data.total);
         setItems((prev) => {
@@ -120,6 +142,11 @@ export default function IndexRoute() {
           }
           return merged;
         });
+      })
+      .catch((err) => {
+        if (err instanceof Error && (err.message === "Unauthorized" || err.message.includes("401"))) {
+          setShowLogin(true);
+        }
       })
       .finally(() => setLoading(false));
   }, [query, user?.id]);
@@ -143,6 +170,13 @@ export default function IndexRoute() {
   }, [items, user]);
 
   useEffect(() => {
+    if (!user || !pendingLike) return;
+    const next = pendingLike;
+    setPendingLike(null);
+    void toggleLike(next.id, next.nextLiked);
+  }, [user, pendingLike]);
+
+  useEffect(() => {
     getMediaFacets({
       year: year || undefined,
       month: month || undefined,
@@ -151,13 +185,68 @@ export default function IndexRoute() {
       type: typeFilter || undefined,
       tag: tagFilter || undefined,
       category: categoryFilter || undefined,
+      liked: likedOnly && Boolean(user) ? true : undefined,
     }).then((data) => {
       setYears(data.years);
       setMonths(data.months);
       setTags(data.tags);
       setCategories(data.categories);
     });
-  }, [year, month, fromDate, toDate, typeFilter, tagFilter, categoryFilter]);
+  }, [year, month, fromDate, toDate, typeFilter, tagFilter, categoryFilter, likedOnly, user]);
+
+  function updateFiltersUrl(input: {
+    year: string;
+    month: string;
+    fromDate: string;
+    toDate: string;
+    type: "" | "image" | "video";
+    orientation: "" | "landscape" | "portrait" | "square";
+    tag: string;
+    category: string;
+    likedOnly: boolean;
+  }) {
+    const params = new URLSearchParams();
+    if (input.year) params.set("year", input.year);
+    if (input.month) params.set("month", input.month);
+    if (input.fromDate) params.set("from", input.fromDate);
+    if (input.toDate) params.set("to", input.toDate);
+    if (input.type) params.set("type", input.type);
+    if (input.orientation) params.set("orientation", input.orientation);
+    if (input.tag) params.set("tag", input.tag);
+    if (input.category) params.set("category", input.category);
+    if (input.likedOnly) params.set("liked", "true");
+    const suffix = params.toString();
+    const nextUrl = `${window.location.pathname}${suffix ? `?${suffix}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", nextUrl);
+  }
+
+  async function toggleLike(id: string, nextLiked: boolean) {
+    try {
+      if (nextLiked) {
+        await likeMedia(id);
+      } else {
+        await unlikeMedia(id);
+      }
+      setItems((prev) => prev.map((item) => (item.id === id ? { ...item, liked: nextLiked } : item)));
+    } catch (err) {
+      if (err instanceof Error && (err.message === "Unauthorized" || err.message.includes("401"))) {
+        setPendingLike({ id, nextLiked });
+        setShowLogin(true);
+        return;
+      }
+    }
+  }
+
+  function handleLikeClick(id: string) {
+    const current = items.find((item) => item.id === id);
+    const nextLiked = !(current?.liked ?? false);
+    if (!user) {
+      setPendingLike({ id, nextLiked });
+      setShowLogin(true);
+      return;
+    }
+    void toggleLike(id, nextLiked);
+  }
 
   const backgroundImage = resolveBackgroundImage();
   return (
@@ -184,6 +273,7 @@ export default function IndexRoute() {
         onZoomChange={(value) => setZoom(value)}
         hasBackground={Boolean(backgroundImage)}
         hasMore={hasMore}
+        onToggleLike={(id) => handleLikeClick(id)}
         onEndReached={() => {
           if (loading || !hasMore) return;
           setPage((prev) => prev + 1);
@@ -293,6 +383,8 @@ export default function IndexRoute() {
               categories={categories}
               typeFilter={typeFilter}
               orientationFilter={orientationFilter}
+              likedOnly={likedOnly}
+              showFavoritesToggle={Boolean(user)}
               tagFilter={tagFilter}
               categoryFilter={categoryFilter}
               onClose={() => setShowFilters(false)}
@@ -304,9 +396,11 @@ export default function IndexRoute() {
                 setToDate(range.toDate);
                 setTypeFilter(next.type);
                 setOrientationFilter(next.orientation);
+                setLikedOnly(next.likedOnly);
                 setTagFilter(next.tag);
                 setCategoryFilter(next.category);
                 setShowFilters(false);
+                updateFiltersUrl(next);
               }}
               onClear={() => {
                 setYear("");
@@ -317,7 +411,19 @@ export default function IndexRoute() {
                 setOrientationFilter("");
                 setTagFilter("");
                 setCategoryFilter("");
+                setLikedOnly(false);
                 setShowFilters(false);
+                updateFiltersUrl({
+                  year: "",
+                  month: "",
+                  fromDate: "",
+                  toDate: "",
+                  type: "",
+                  orientation: "",
+                  tag: "",
+                  category: "",
+                  likedOnly: false,
+                });
               }}
             />
           </Drawer.Content>
@@ -670,6 +776,8 @@ function FilterDrawer({
   categories,
   typeFilter,
   orientationFilter,
+  likedOnly,
+  showFavoritesToggle,
   tagFilter,
   categoryFilter,
   onClose,
@@ -686,6 +794,8 @@ function FilterDrawer({
   categories: Array<{ category: string; count: number }>;
   typeFilter: "" | "image" | "video";
   orientationFilter: "" | "landscape" | "portrait" | "square";
+  likedOnly: boolean;
+  showFavoritesToggle: boolean;
   tagFilter: string;
   categoryFilter: string;
   onClose: () => void;
@@ -696,6 +806,7 @@ function FilterDrawer({
     toDate: string;
     type: "" | "image" | "video";
     orientation: "" | "landscape" | "portrait" | "square";
+    likedOnly: boolean;
     tag: string;
     category: string;
   }) => void;
@@ -707,6 +818,7 @@ function FilterDrawer({
   const [nextTo, setNextTo] = useState(toDate);
   const [nextType, setNextType] = useState<"" | "image" | "video">(typeFilter);
   const [nextOrientation, setNextOrientation] = useState<"" | "landscape" | "portrait" | "square">(orientationFilter);
+  const [nextLikedOnly, setNextLikedOnly] = useState(likedOnly);
   const [nextTag, setNextTag] = useState(tagFilter);
   const [nextCategory, setNextCategory] = useState(categoryFilter);
 
@@ -717,9 +829,10 @@ function FilterDrawer({
     setNextTo(toDate);
     setNextType(typeFilter);
     setNextOrientation(orientationFilter);
+    setNextLikedOnly(likedOnly);
     setNextTag(tagFilter);
     setNextCategory(categoryFilter);
-  }, [year, month, fromDate, toDate, typeFilter, orientationFilter, tagFilter, categoryFilter]);
+  }, [year, month, fromDate, toDate, typeFilter, orientationFilter, likedOnly, tagFilter, categoryFilter]);
 
   return (
     <div className="flex h-full flex-col">
@@ -773,6 +886,20 @@ function FilterDrawer({
             ))}
           </div>
         </div>
+        {showFavoritesToggle ? (
+          <div className="space-y-2">
+            <p className="text-xs uppercase text-slate-400">Favorites</p>
+            <button
+              type="button"
+              onClick={() => setNextLikedOnly((prev) => !prev)}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                nextLikedOnly ? "border-rose-400 bg-rose-500/20 text-rose-200" : "border-white/10 text-slate-300"
+              }`}
+            >
+              {nextLikedOnly ? "Showing liked" : "Show liked only"}
+            </button>
+          </div>
+        ) : null}
         <div className="space-y-2">
           <p className="text-xs uppercase text-slate-400">Categories</p>
           <div className="flex flex-wrap gap-2">
@@ -927,6 +1054,7 @@ function FilterDrawer({
               toDate: nextTo,
               type: nextType,
               orientation: nextOrientation,
+              likedOnly: nextLikedOnly,
               tag: nextTag,
               category: nextCategory,
             })

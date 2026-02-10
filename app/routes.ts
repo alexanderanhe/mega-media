@@ -26,6 +26,7 @@ export default [
   route("api/admin/media/:id/trim", "routes/api.admin.media.$id.trim.ts"),
 
   route("api/media/pages", "routes/api.media.pages.ts"),
+  route("api/media/:id/like", "routes/api.media.$id.like.ts"),
   route("api/media/facets", "routes/api.media.facets.ts"),
   route("api/media/tags", "routes/api.media.tags.ts"),
   route("api/media/categories", "routes/api.media.categories.ts"),

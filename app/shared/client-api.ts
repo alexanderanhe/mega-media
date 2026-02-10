@@ -24,6 +24,8 @@ export type MediaListItem = {
   sizeBytes?: number | null;
   variantSizes?: Record<string, number> | null;
   durationSeconds?: number | null;
+  liked?: boolean;
+  likesCount?: number;
 };
 
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -117,6 +119,7 @@ export function getMediaFacets(params?: {
   type?: "image" | "video";
   tag?: string;
   category?: string;
+  liked?: boolean;
 }) {
   const query = new URLSearchParams();
   if (params?.year) query.set("year", params.year);
@@ -126,6 +129,7 @@ export function getMediaFacets(params?: {
   if (params?.type) query.set("type", params.type);
   if (params?.tag) query.set("tag", params.tag);
   if (params?.category) query.set("category", params.category);
+  if (params?.liked) query.set("liked", "true");
   const suffix = query.toString();
   return request<{
     years: Array<{ year: number; count: number }>;
@@ -248,6 +252,19 @@ export async function getBatchUrls(
 export function getVideoPlayback(id: string) {
   return request<{ id: string; playbackUrl: string; posterUrl: string | null; mime: string }>(`/api/media/${id}/play`, {
     headers: {},
+  });
+}
+
+export function likeMedia(id: string) {
+  return request<{ ok: boolean; liked: boolean }>(`/api/media/${id}/like`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function unlikeMedia(id: string) {
+  return request<{ ok: boolean; liked: boolean }>(`/api/media/${id}/like`, {
+    method: "DELETE",
   });
 }
 
