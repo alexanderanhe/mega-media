@@ -80,6 +80,7 @@ export const GameCanvas = forwardRef<
   const focusedRectRef = useRef<OverlayState["rect"] | null>(null);
   const focusedIdRef = useRef<string | null>(null);
   const hoveredIdRef = useRef<string | null>(null);
+  const didAutoCenterRef = useRef(false);
   const focusInterruptedRef = useRef(false);
   const drawVisibleRef = useRef<() => void>(() => undefined);
   const activeAnimationRef = useRef<CameraAnimation | null>(null);
@@ -88,7 +89,11 @@ export const GameCanvas = forwardRef<
   const onEndReachedRef = useRef<typeof onEndReached>(onEndReached);
   const hasMoreRef = useRef<boolean | undefined>(hasMore);
   const lastEndTriggerRef = useRef(0);
-  const tiles = useMemo(() => layoutTiles(items), [items]);
+  const layoutKey = useMemo(
+    () => items.map((item) => `${item.id}:${item.type}:${item.aspect}:${item.hidden ? 1 : 0}`).join("|"),
+    [items],
+  );
+  const tiles = useMemo(() => layoutTiles(items), [layoutKey]);
   const bounds = useMemo(() => contentBounds(tiles), [tiles]);
 
   const centerContent = useCallback((width: number, height: number) => {
@@ -126,7 +131,8 @@ export const GameCanvas = forwardRef<
       appReadyRef.current &&
       !hasUserInteractedRef.current &&
       !focusedIdRef.current &&
-      !overlayRef.current
+      !overlayRef.current &&
+      !didAutoCenterRef.current
     ) {
       const host = hostRef.current;
       if (host) {
@@ -140,6 +146,7 @@ export const GameCanvas = forwardRef<
           worldRef.current.position.set(cameraRef.current.x, cameraRef.current.y);
           worldRef.current.scale.set(cameraRef.current.zoom);
         }
+        didAutoCenterRef.current = true;
       }
     }
     if (appReadyRef.current && sizeReadyRef.current) {
@@ -148,6 +155,12 @@ export const GameCanvas = forwardRef<
       pendingDrawRef.current = true;
     }
   }, [tiles, bounds]);
+
+  useEffect(() => {
+    if (items.length === 0) {
+      didAutoCenterRef.current = false;
+    }
+  }, [items.length]);
 
   useEffect(() => {
     if (!focusedIdRef.current) return;
@@ -436,7 +449,10 @@ export const GameCanvas = forwardRef<
 
       const onResize = () => {
         if (!host) return;
-        if (!overlayRef.current && !focusedIdRef.current) centerContent(host.clientWidth, host.clientHeight);
+        if (!overlayRef.current && !focusedIdRef.current && !didAutoCenterRef.current) {
+          centerContent(host.clientWidth, host.clientHeight);
+          didAutoCenterRef.current = true;
+        }
         drawVisible();
         onZoomChangeRef.current?.(cameraRef.current.zoom);
       };
@@ -497,8 +513,9 @@ export const GameCanvas = forwardRef<
         const height = rect.height || host.clientHeight || window.innerHeight;
         if (!width || !height) return;
         sizeReadyRef.current = true;
-        if (!hasUserInteractedRef.current && !focusedIdRef.current && !overlayRef.current) {
+        if (!hasUserInteractedRef.current && !focusedIdRef.current && !overlayRef.current && !didAutoCenterRef.current) {
           centerContent(width, height);
+          didAutoCenterRef.current = true;
         }
         if (worldRef.current) {
           worldRef.current.position.set(cameraRef.current.x, cameraRef.current.y);

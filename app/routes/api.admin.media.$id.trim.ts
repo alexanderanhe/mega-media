@@ -44,7 +44,8 @@ export const action = async ({ request, params }: { request: Request; params: { 
       await fs.unlink(inputPath).catch(() => undefined);
       throw new ApiError(400, "Start time exceeds duration");
     }
-    if (body.endSeconds > probe.duration) {
+    const safeEndSeconds = Math.min(body.endSeconds, probe.duration);
+    if (safeEndSeconds <= body.startSeconds) {
       await fs.unlink(inputPath).catch(() => undefined);
       throw new ApiError(400, "End time exceeds duration");
     }
@@ -53,7 +54,12 @@ export const action = async ({ request, params }: { request: Request; params: { 
     const originalExt = extFromKey(existing.r2KeyOriginal);
 
     const copyPath = path.join(os.tmpdir(), `${existing._id.toString()}-trim.${originalExt}`);
-    const copyOk = await trimCopy(inputPath, copyPath, body.startSeconds, durationSeconds);
+    const finalDurationSeconds = safeEndSeconds - body.startSeconds;
+    if (finalDurationSeconds < 6) {
+      await fs.unlink(inputPath).catch(() => undefined);
+      throw new ApiError(400, "Trimmed video must be at least 6 seconds");
+    }
+    const copyOk = await trimCopy(inputPath, copyPath, body.startSeconds, finalDurationSeconds);
     if (!copyOk) {
       await fs.unlink(inputPath).catch(() => undefined);
       throw new ApiError(400, "Unable to trim video");
@@ -68,7 +74,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
       usedReencode = true;
       finalExt = "mp4";
       const reencodePath = path.join(os.tmpdir(), `${existing._id.toString()}-trim-reencode.mp4`);
-      const reencodeOk = await trimReencode(inputPath, reencodePath, body.startSeconds, durationSeconds);
+      const reencodeOk = await trimReencode(inputPath, reencodePath, body.startSeconds, finalDurationSeconds);
       if (!reencodeOk) {
         await fs.unlink(inputPath).catch(() => undefined);
         await fs.unlink(copyPath).catch(() => undefined);
