@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FiFilter, FiImage, FiMoreHorizontal, FiUploadCloud, FiVideo } from "react-icons/fi";
+import { FiChevronDown, FiChevronUp, FiFilter, FiImage, FiMoreHorizontal, FiUploadCloud, FiVideo } from "react-icons/fi";
 import { Drawer } from "vaul";
 import type { Route } from "./+types/admin.media";
 import { requireAdminPage } from "~/server/guards";
-import { getBatchUrls, getMediaCategories, getMediaPages, getMediaTags, patchMedia, retryMediaProcessing } from "~/shared/client-api";
+import { getAdminMediaSummary, getBatchUrls, getMediaCategories, getMediaPages, getMediaTags, patchMedia, retryMediaProcessing } from "~/shared/client-api";
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdminPage(request);
@@ -20,6 +20,7 @@ export default function AdminMediaRoute() {
       height?: number | null;
       visibility: "PUBLIC" | "PRIVATE";
       dateEffective: string;
+      createdAt?: string;
       status: string;
       errorMessage?: string | null;
       title?: string;
@@ -50,6 +51,26 @@ export default function AdminMediaRoute() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [summary, setSummary] = useState({
+    totalCount: 0,
+    totalBytes: 0,
+    imageCount: 0,
+    videoCount: 0,
+    imageAverage: 0,
+    imageMedian: 0,
+    videoAverage: 0,
+    videoMedian: 0,
+    orientationCounts: {
+      landscape: 0,
+      portrait: 0,
+      square: 0,
+      unknown: 0,
+    },
+  });
+  const [refreshToken, setRefreshToken] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploads, setUploads] = useState<
     Array<{
@@ -64,6 +85,7 @@ export default function AdminMediaRoute() {
   const uploadQueueRef = useRef<File[]>([]);
   const uploadingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const dragCounter = useRef(0);
   const [dragActive, setDragActive] = useState(false);
   const [patchingIds, setPatchingIds] = useState<Set<string>>(new Set());
@@ -100,53 +122,38 @@ export default function AdminMediaRoute() {
     [],
   );
   const totals = useMemo(() => {
-    let totalBytes = 0;
-    let imageCount = 0;
-    let videoCount = 0;
-    const imageSizes: number[] = [];
-    const videoSizes: number[] = [];
-    const orientationCounts = {
-      landscape: 0,
-      portrait: 0,
-      square: 0,
-      unknown: 0,
-    };
-
-    for (const item of items) {
-      if (item.type === "image") imageCount += 1;
-      if (item.type === "video") videoCount += 1;
-      const baseSize = item.originalBytes ?? item.sizeBytes ?? 0;
-      if (baseSize > 0) {
-        totalBytes += baseSize;
-        if (item.type === "image") imageSizes.push(baseSize);
-        if (item.type === "video") videoSizes.push(baseSize);
-      }
-      const aspect = resolveItemAspect(item.width, item.height, item.aspect);
-      const orientation = resolveOrientation(aspect);
-      if (!orientation) {
-        orientationCounts.unknown += 1;
-      } else {
-        orientationCounts[orientation] += 1;
-      }
-    }
-
+    const totalCount = summary.totalCount;
+    const imageCount = summary.imageCount;
+    const videoCount = summary.videoCount;
+    const imageRatio = imageCount + videoCount ? imageCount / (imageCount + videoCount) : 0;
     return {
-      totalBytes,
-      totalCount: items.length,
+      ...summary,
+      totalCount,
       imageCount,
       videoCount,
-      imageRatio: imageCount + videoCount ? imageCount / (imageCount + videoCount) : 0,
-      imageAverage: average(imageSizes),
-      imageMedian: median(imageSizes),
-      videoAverage: average(videoSizes),
-      videoMedian: median(videoSizes),
-      orientationCounts,
+      imageRatio,
     };
-  }, [items]);
+  }, [summary]);
+  const filterKey = useMemo(
+    () =>
+      JSON.stringify({
+        search: search.trim(),
+        fromDate,
+        toDate,
+        typeFilter,
+        tagFilter: tagFilter.trim(),
+        categoryFilter: categoryFilter.trim(),
+        featuredOnly,
+        sort,
+      }),
+    [search, fromDate, toDate, typeFilter, tagFilter, categoryFilter, featuredOnly, sort],
+  );
+  const queryKey = useMemo(() => `${filterKey}:${refreshToken}`, [filterKey, refreshToken]);
 
-  const refresh = () => {
-    setLoading(true);
-    const query = new URLSearchParams({ page: "1", pageSize: "200" });
+  const PAGE_SIZE = 50;
+
+  const buildQuery = (pageValue: number) => {
+    const query = new URLSearchParams({ page: String(pageValue), pageSize: String(PAGE_SIZE) });
     if (search.trim()) query.set("q", search.trim());
     if (fromDate) query.set("from", new Date(fromDate).toISOString());
     if (toDate) query.set("to", new Date(toDate).toISOString());
@@ -155,32 +162,31 @@ export default function AdminMediaRoute() {
     if (categoryFilter.trim()) query.set("category", categoryFilter.trim());
     if (featuredOnly) query.set("featured", "true");
     if (sort) query.set("sort", sort);
-    getMediaPages(query).then((res) => {
-      const nextItems = res.items.map((item) => ({
-        id: item.id,
-        type: item.type,
-        aspect: item.aspect,
-        width: item.width ?? null,
-        height: item.height ?? null,
-        visibility: item.visibility,
-        dateEffective: item.dateEffective,
-        status: item.status,
-        errorMessage: item.errorMessage,
-        title: item.title,
-        description: item.description,
-        placeName: item.placeName ?? null,
-        dateTaken: item.dateTaken ?? null,
-        sizeBytes: item.sizeBytes ?? null,
-        originalBytes: item.originalBytes ?? null,
-        variantSizes: item.variantSizes ?? null,
-        durationSeconds: item.durationSeconds ?? null,
-        tags: item.tags ?? [],
-        category: item.category ?? null,
-      }));
-      setItems(nextItems);
-      void loadThumbnails(nextItems);
-      setLoading(false);
-    });
+    return query;
+  };
+
+  const buildSummaryQuery = () => {
+    const query = new URLSearchParams();
+    if (search.trim()) query.set("q", search.trim());
+    if (fromDate) query.set("from", new Date(fromDate).toISOString());
+    if (toDate) query.set("to", new Date(toDate).toISOString());
+    if (typeFilter) query.set("type", typeFilter);
+    if (tagFilter.trim()) query.set("tag", tagFilter.trim());
+    if (categoryFilter.trim()) query.set("category", categoryFilter.trim());
+    if (featuredOnly) query.set("featured", "true");
+    if (sort) query.set("sort", sort);
+    return query;
+  };
+
+  const refresh = () => {
+    setItems([]);
+    setPage(1);
+    setHasMore(true);
+    setRefreshToken((prev) => prev + 1);
+    const query = buildSummaryQuery();
+    getAdminMediaSummary(query)
+      .then((res) => setSummary(res))
+      .catch(() => setSummary((prev) => ({ ...prev, totalCount: 0, totalBytes: 0 })));
   };
 
   function pushToast(message: string, tone: "success" | "warning" | "error") {
@@ -194,6 +200,67 @@ export default function AdminMediaRoute() {
   useEffect(() => {
     refresh();
   }, [search, fromDate, toDate, typeFilter, tagFilter, categoryFilter, featuredOnly, sort]);
+
+  useEffect(() => {
+    const query = buildQuery(page);
+    if (page === 1) setLoading(true);
+    if (page > 1) setLoadingMore(true);
+    getMediaPages(query)
+      .then((res) => {
+        const nextItems = res.items.map((item) => ({
+          id: item.id,
+          type: item.type,
+          aspect: item.aspect,
+          width: item.width ?? null,
+          height: item.height ?? null,
+          visibility: item.visibility,
+          dateEffective: item.dateEffective,
+          createdAt: item.createdAt ?? null,
+          status: item.status,
+          errorMessage: item.errorMessage,
+          title: item.title,
+          description: item.description,
+          placeName: item.placeName ?? null,
+          dateTaken: item.dateTaken ?? null,
+          sizeBytes: item.sizeBytes ?? null,
+          originalBytes: item.originalBytes ?? null,
+          variantSizes: item.variantSizes ?? null,
+          durationSeconds: item.durationSeconds ?? null,
+          tags: item.tags ?? [],
+          category: item.category ?? null,
+        }));
+        setHasMore(page * PAGE_SIZE < res.total);
+        setItems((prev) => {
+          if (page === 1) return nextItems;
+          const seen = new Set(prev.map((item) => item.id));
+          const merged = [...prev];
+          for (const item of nextItems) {
+            if (!seen.has(item.id)) merged.push(item);
+          }
+          return merged;
+        });
+        void loadThumbnails(nextItems);
+      })
+      .finally(() => {
+        setLoading(false);
+        setLoadingMore(false);
+      });
+  }, [page, queryKey]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMore && !loadingMore && !loading) {
+          setPage((prev) => prev + 1);
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, loading]);
 
   useEffect(() => {
     void loadOptions();
@@ -239,6 +306,36 @@ export default function AdminMediaRoute() {
       window.removeEventListener("drop", onDrop);
     };
   }, []);
+
+  const sortDirections = {
+    title: sort === "title_asc" ? "asc" : sort === "title_desc" ? "desc" : null,
+    size: sort === "size_asc" ? "asc" : sort === "size_desc" ? "desc" : null,
+    date: sort === "date_asc" ? "asc" : sort === "date_desc" ? "desc" : null,
+    type: sort === "type_asc" ? "asc" : sort === "type_desc" ? "desc" : null,
+    aspect: sort === "aspect_asc" ? "asc" : sort === "aspect_desc" ? "desc" : null,
+    dimensions: sort === "dimensions_asc" ? "asc" : sort === "dimensions_desc" ? "desc" : null,
+    duration: sort === "duration_asc" ? "asc" : sort === "duration_desc" ? "desc" : null,
+    created: sort === "created_asc" ? "asc" : sort === "created_desc" ? "desc" : null,
+  } as const;
+
+  function toggleSort(column: "title" | "size" | "date" | "type" | "aspect" | "dimensions" | "duration" | "created") {
+    setSort((prev) => {
+      if (column === "title") return prev === "title_asc" ? "title_desc" : "title_asc";
+      if (column === "size") return prev === "size_desc" ? "size_asc" : "size_desc";
+      if (column === "type") return prev === "type_asc" ? "type_desc" : "type_asc";
+      if (column === "aspect") return prev === "aspect_asc" ? "aspect_desc" : "aspect_asc";
+      if (column === "dimensions") return prev === "dimensions_asc" ? "dimensions_desc" : "dimensions_asc";
+      if (column === "duration") return prev === "duration_asc" ? "duration_desc" : "duration_asc";
+      if (column === "created") return prev === "created_desc" ? "created_asc" : "created_desc";
+      return prev === "date_desc" ? "date_asc" : "date_desc";
+    });
+  }
+
+  function renderSortIcon(direction: "asc" | "desc" | null) {
+    if (direction === "asc") return <FiChevronUp className="h-3 w-3" />;
+    if (direction === "desc") return <FiChevronDown className="h-3 w-3" />;
+    return null;
+  }
 
   return (
     <div className="space-y-4">
@@ -393,13 +490,86 @@ export default function AdminMediaRoute() {
           <thead>
             <tr className="text-left text-slate-400">
               <th>Visibility</th>
-              <th>Media</th>
-              <th>Format</th>
-              <th>Aspect</th>
-              <th>Dimensions</th>
-              <th>Duration</th>
-              <th>Size</th>
-              <th>Date</th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("title")}
+                  className="inline-flex items-center gap-1 text-left text-slate-300 hover:text-slate-100"
+                >
+                  Media
+                  {renderSortIcon(sortDirections.title)}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("type")}
+                  className="inline-flex items-center gap-1 text-left text-slate-300 hover:text-slate-100"
+                >
+                  Format
+                  {renderSortIcon(sortDirections.type)}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("aspect")}
+                  className="inline-flex items-center gap-1 text-left text-slate-300 hover:text-slate-100"
+                >
+                  Aspect
+                  {renderSortIcon(sortDirections.aspect)}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("dimensions")}
+                  className="inline-flex items-center gap-1 text-left text-slate-300 hover:text-slate-100"
+                >
+                  Dimensions
+                  {renderSortIcon(sortDirections.dimensions)}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("duration")}
+                  className="inline-flex items-center gap-1 text-left text-slate-300 hover:text-slate-100"
+                >
+                  Duration
+                  {renderSortIcon(sortDirections.duration)}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("size")}
+                  className="inline-flex items-center gap-1 text-left text-slate-300 hover:text-slate-100"
+                >
+                  Size
+                  {renderSortIcon(sortDirections.size)}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("date")}
+                  className="inline-flex items-center gap-1 text-left text-slate-300 hover:text-slate-100"
+                >
+                  Date
+                  {renderSortIcon(sortDirections.date)}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("created")}
+                  className="inline-flex items-center gap-1 text-left text-slate-300 hover:text-slate-100"
+                >
+                  Uploaded
+                  {renderSortIcon(sortDirections.created)}
+                </button>
+              </th>
               <th>Action</th>
             </tr>
           </thead>
@@ -414,6 +584,7 @@ export default function AdminMediaRoute() {
                     <td><div className="skeleton h-4 w-16" /></td>
                     <td><div className="skeleton h-4 w-20" /></td>
                     <td><div className="skeleton h-4 w-20" /></td>
+                    <td><div className="skeleton h-4 w-28" /></td>
                     <td><div className="skeleton h-4 w-28" /></td>
                     <td><div className="skeleton h-8 w-8" /></td>
                   </tr>
@@ -469,7 +640,8 @@ export default function AdminMediaRoute() {
                         ) : null}
                       </div>
                     </td>
-                    <td className="text-sm text-slate-300">{new Date(item.dateEffective).toLocaleDateString()}</td>
+                    <td className="text-sm text-slate-300">{formatShortDate(item.dateEffective)}</td>
+                    <td className="text-sm text-slate-300">{formatShortDate(item.createdAt ?? null)}</td>
                     <td>
                       <div className="flex items-center gap-2">
                         {item.status === "error" ? (
@@ -510,6 +682,10 @@ export default function AdminMediaRoute() {
           </tbody>
         </table>
       </div>
+      <div className="flex items-center justify-center text-xs text-slate-400">
+        {loadingMore ? "Loading more..." : hasMore ? "Scroll for more" : "End of results"}
+      </div>
+      <div ref={sentinelRef} className="h-2" />
       <Drawer.Root open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)} direction="right">
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 z-40 bg-black/70" />
@@ -582,6 +758,7 @@ export default function AdminMediaRoute() {
                     }
                     setItems((prev) => prev.filter((item) => item.id !== id));
                     setEditing(null);
+                    refresh();
                   } finally {
                     setDeleting(false);
                   }
@@ -743,8 +920,18 @@ export default function AdminMediaRoute() {
                 >
                   <option value="date_desc">Date: newest</option>
                   <option value="date_asc">Date: oldest</option>
+                  <option value="created_desc">Uploaded: newest</option>
+                  <option value="created_asc">Uploaded: oldest</option>
+                  <option value="type_asc">Format: A-Z</option>
+                  <option value="type_desc">Format: Z-A</option>
                   <option value="size_desc">Size: largest</option>
                   <option value="size_asc">Size: smallest</option>
+                  <option value="aspect_desc">Aspect: widest</option>
+                  <option value="aspect_asc">Aspect: tallest</option>
+                  <option value="dimensions_desc">Dimensions: largest</option>
+                  <option value="dimensions_asc">Dimensions: smallest</option>
+                  <option value="duration_desc">Duration: longest</option>
+                  <option value="duration_asc">Duration: shortest</option>
                   <option value="title_asc">Title: A-Z</option>
                   <option value="title_desc">Title: Z-A</option>
                 </select>
@@ -966,20 +1153,11 @@ function formatBytesTotal(bytes: number) {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
-function average(values: number[]) {
-  if (!values.length) return 0;
-  const total = values.reduce((sum, value) => sum + value, 0);
-  return total / values.length;
-}
-
-function median(values: number[]) {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 0) {
-    return (sorted[mid - 1] + sorted[mid]) / 2;
-  }
-  return sorted[mid];
+function formatShortDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString();
 }
 
 function resolveItemAspect(width?: number | null, height?: number | null, aspect?: number | null) {

@@ -44,6 +44,12 @@ type MediaCollectionDoc = {
   aspect: number;
   status: "processing" | "ready" | "error";
   errorMessage?: string;
+  splitGroupId?: ObjectId;
+  splitParentId?: ObjectId;
+  splitOrder?: number;
+  splitStartSeconds?: number;
+  splitEndSeconds?: number;
+  splitChildrenCount?: number;
 };
 
 type LikeDoc = {
@@ -99,6 +105,8 @@ async function initialize(db: Awaited<ReturnType<typeof getDb>>) {
   await media.createIndex({ visibility: 1, status: 1, dateEffective: -1 });
   await media.createIndex({ tags: 1 });
   await media.createIndex({ category: 1 });
+  await media.createIndex({ splitParentId: 1, splitOrder: 1 });
+  await media.createIndex({ splitGroupId: 1 });
   await media.createIndex(
     { fileHash: 1 },
     { unique: true, partialFilterExpression: { fileHash: { $type: "string" } } },

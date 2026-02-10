@@ -50,7 +50,26 @@ export const pageQuerySchema = z.object({
   orientation: z.enum(["landscape", "portrait", "square"]).optional(),
   liked: z.coerce.boolean().optional(),
   featured: z.coerce.boolean().optional(),
-  sort: z.enum(["date_desc", "date_asc", "size_desc", "size_asc", "title_asc", "title_desc"]).optional(),
+  sort: z
+    .enum([
+      "date_desc",
+      "date_asc",
+      "size_desc",
+      "size_asc",
+      "title_asc",
+      "title_desc",
+      "type_asc",
+      "type_desc",
+      "aspect_asc",
+      "aspect_desc",
+      "dimensions_asc",
+      "dimensions_desc",
+      "duration_asc",
+      "duration_desc",
+      "created_desc",
+      "created_asc",
+    ])
+    .optional(),
 });
 
 export const batchUrlsSchema = z.object({
@@ -88,4 +107,20 @@ export const patchMediaSchema = z.object({
 export const trimMediaSchema = z.object({
   startSeconds: z.number().min(0),
   endSeconds: z.number().min(0),
+});
+
+export const splitMediaSchema = z.object({
+  segments: z
+    .array(
+      z.object({
+        startSeconds: z.number().min(0),
+        endSeconds: z.number().min(0),
+      }),
+    )
+    .min(1)
+    .max(24),
+});
+
+export const previewMediaSchema = z.object({
+  atSeconds: z.number().min(0),
 });

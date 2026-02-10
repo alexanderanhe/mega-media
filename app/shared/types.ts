@@ -43,4 +43,10 @@ export interface MediaDoc {
   blur?: { r2Key: string; w: number; h: number; mime: string } | null;
   status: MediaStatus;
   errorMessage?: string;
+  splitGroupId?: string;
+  splitParentId?: string;
+  splitOrder?: number;
+  splitStartSeconds?: number;
+  splitEndSeconds?: number;
+  splitChildrenCount?: number;
 }

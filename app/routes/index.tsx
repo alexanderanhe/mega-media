@@ -116,9 +116,10 @@ export default function IndexRoute() {
 
   useEffect(() => {
     setLoading(true);
+    const initialOrder = String(import.meta.env.VITE_MAIN_INITIAL_ORDER || "date").toLowerCase();
     getMediaPages(query)
       .then((data) => {
-        const nextItems = data.items.map((item) => ({
+        const baseItems = data.items.map((item) => ({
           id: item.id,
           type: item.type,
           aspect: item.aspect,
@@ -132,6 +133,7 @@ export default function IndexRoute() {
           liked: item.liked ?? false,
           likesCount: item.likesCount ?? 0,
         }));
+        const nextItems = initialOrder === "random" ? shuffleItems(baseItems) : baseItems;
         setHasMore(page * 160 < data.total);
         setItems((prev) => {
           if (page === 1) return nextItems;
@@ -1083,6 +1085,15 @@ function startOfDayIso(dateStr: string) {
 function endOfDayIso(dateStr: string) {
   const date = new Date(`${dateStr}T23:59:59.999`);
   return date.toISOString();
+}
+
+function shuffleItems<T>(items: T[]) {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
 }
 
 function deriveRange(value: { year: string; month: string; fromDate: string; toDate: string }) {

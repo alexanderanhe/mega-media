@@ -91,6 +91,7 @@ export const loader = async ({ request }: { request: Request }) =>
           category: 1,
           dateTaken: 1,
           dateEffective: 1,
+          createdAt: 1,
           location: 1,
           aspect: 1,
           width: 1,
@@ -136,6 +137,7 @@ export const loader = async ({ request }: { request: Request }) =>
         width: auth ? (item.width ?? null) : undefined,
         height: auth ? (item.height ?? null) : undefined,
         dateEffective: item.dateEffective,
+        createdAt: auth ? item.createdAt : undefined,
         hasLocation: !auth && item.visibility === "PRIVATE" ? false : Boolean(item.location),
         visibility: item.visibility,
         status: item.status,
@@ -208,16 +210,36 @@ function pickAspect(item: {
 
 function resolveSort(sort?: string): Record<string, 1 | -1> {
   switch (sort) {
-    case "date_asc":
-      return { dateEffective: 1 };
-    case "size_desc":
-      return { "variants.lod4.bytes": -1, dateEffective: -1 };
-    case "size_asc":
-      return { "variants.lod4.bytes": 1, dateEffective: -1 };
+    case "created_asc":
+      return { createdAt: 1 };
+    case "created_desc":
+      return { createdAt: -1 };
     case "title_asc":
       return { title: 1 };
     case "title_desc":
       return { title: -1 };
+    case "size_desc":
+      return { "variants.lod4.bytes": -1, dateEffective: -1 };
+    case "size_asc":
+      return { "variants.lod4.bytes": 1, dateEffective: -1 };
+    case "type_asc":
+      return { type: 1, dateEffective: -1 };
+    case "type_desc":
+      return { type: -1, dateEffective: -1 };
+    case "aspect_asc":
+      return { aspect: 1, dateEffective: -1 };
+    case "aspect_desc":
+      return { aspect: -1, dateEffective: -1 };
+    case "dimensions_asc":
+      return { width: 1, height: 1, dateEffective: -1 };
+    case "dimensions_desc":
+      return { width: -1, height: -1, dateEffective: -1 };
+    case "duration_asc":
+      return { "preview.duration": 1, dateEffective: -1 };
+    case "duration_desc":
+      return { "preview.duration": -1, dateEffective: -1 };
+    case "date_asc":
+      return { dateEffective: 1 };
     case "date_desc":
     default:
       return { dateEffective: -1 };

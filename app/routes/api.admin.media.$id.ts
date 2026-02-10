@@ -12,6 +12,8 @@ export const loader = async ({ request, params }: { request: Request; params: { 
     const existing = await media.findOne({ _id: new ObjectId(params.id) });
     if (!existing) throw new ApiError(404, "Media not found");
 
+    const hasSplits = Boolean(existing.splitParentId) || (existing.splitChildrenCount ?? 0) > 0;
+
     return jsonOk({
       id: existing._id.toString(),
       type: existing.type,
@@ -21,6 +23,7 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       r2KeyOriginal: existing.r2KeyOriginal,
       durationSeconds: existing.preview?.duration ?? null,
       dateEffective: existing.dateEffective,
+      hasSplits,
     });
   })(request);
 

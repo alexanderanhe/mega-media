@@ -140,6 +140,25 @@ export function getMediaFacets(params?: {
   }>(`/api/media/facets${suffix ? `?${suffix}` : ""}`, { headers: {} });
 }
 
+export function getAdminMediaSummary(query: URLSearchParams) {
+  return request<{
+    totalCount: number;
+    totalBytes: number;
+    imageCount: number;
+    videoCount: number;
+    imageAverage: number;
+    imageMedian: number;
+    videoAverage: number;
+    videoMedian: number;
+    orientationCounts: {
+      landscape: number;
+      portrait: number;
+      square: number;
+      unknown: number;
+    };
+  }>(`/api/admin/media/summary?${query.toString()}`, { headers: {} });
+}
+
 export function getMediaTags(query?: string) {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
@@ -337,11 +356,29 @@ export function getAdminMediaById(id: string) {
     r2KeyOriginal: string;
     durationSeconds: number | null;
     dateEffective: string;
+    hasSplits: boolean;
   }>(`/api/admin/media/${id}`, { headers: {} });
 }
 
 export function trimMediaVideo(id: string, payload: { startSeconds: number; endSeconds: number }) {
   return request<{ ok: boolean; reencoded: boolean }>(`/api/admin/media/${id}/trim`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function splitMediaVideo(
+  id: string,
+  payload: { segments: Array<{ startSeconds: number; endSeconds: number }> },
+) {
+  return request<{ ok: boolean; items: Array<{ id: string; status: string }> }>(`/api/admin/media/${id}/split`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function setVideoPreviewImage(id: string, payload: { atSeconds: number }) {
+  return request<{ ok: boolean }>(`/api/admin/media/${id}/preview`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

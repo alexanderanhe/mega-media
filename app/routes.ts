@@ -24,6 +24,9 @@ export default [
   route("api/admin/media/:id", "routes/api.admin.media.$id.ts"),
   route("api/admin/media/:id/retry", "routes/api.admin.media.$id.retry.ts"),
   route("api/admin/media/:id/trim", "routes/api.admin.media.$id.trim.ts"),
+  route("api/admin/media/:id/split", "routes/api.admin.media.$id.split.ts"),
+  route("api/admin/media/:id/preview", "routes/api.admin.media.$id.preview.ts"),
+  route("api/admin/media/summary", "routes/api.admin.media.summary.ts"),
 
   route("api/media/pages", "routes/api.media.pages.ts"),
   route("api/media/:id/like", "routes/api.media.$id.like.ts"),
