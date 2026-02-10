@@ -1044,12 +1044,18 @@ export default function AdminMediaRoute() {
   }
 
   async function handleUpload(files: File[]) {
+    const maxSizeBytes = 120 * 1024 * 1024;
+    const oversized = files.filter((file) => file.size > maxSizeBytes);
+    if (oversized.length) {
+      pushToast("Max upload size is 120MB per file.", "warning");
+    }
     const availableSlots = Math.max(0, 20 - uploads.length);
     if (availableSlots === 0) {
       pushToast("Upload queue is full (max 20).", "warning");
       return;
     }
-    const capped = files.slice(0, availableSlots);
+    const candidates = files.filter((file) => file.size <= maxSizeBytes);
+    const capped = candidates.slice(0, availableSlots);
     if (files.length > availableSlots) {
       pushToast("Max 20 files in queue. Extra files were skipped.", "warning");
     }
@@ -1077,6 +1083,11 @@ export default function AdminMediaRoute() {
     let successCount = 0;
     try {
       while (uploadQueueRef.current.length) {
+        const authorized = await ensureAuth();
+        if (!authorized) {
+          pauseQueuedUploads("Session expired");
+          break;
+        }
         const file = uploadQueueRef.current.shift()!;
         const key = `${file.name}-${file.size}-${file.lastModified}`;
         setUploads((prev) =>
@@ -1097,13 +1108,7 @@ export default function AdminMediaRoute() {
             setAuthBlocked(true);
             setShowLogin(true);
             uploadQueueRef.current.unshift(file);
-            setUploads((prev) =>
-              prev.map((item) =>
-                item.key === key
-                  ? { ...item, status: "paused", error: "Session expired" }
-                  : item,
-              ),
-            );
+            pauseQueuedUploads("Session expired");
             break;
           }
           setUploads((prev) =>
@@ -1128,6 +1133,32 @@ export default function AdminMediaRoute() {
         refresh();
       }
     }
+  }
+
+  async function ensureAuth() {
+    try {
+      const me = await getMe();
+      if (!me.user) {
+        setAuthBlocked(true);
+        setShowLogin(true);
+        return false;
+      }
+      return true;
+    } catch {
+      setAuthBlocked(true);
+      setShowLogin(true);
+      return false;
+    }
+  }
+
+  function pauseQueuedUploads(message: string) {
+    setUploads((prev) =>
+      prev.map((item) =>
+        item.status === "queued" || item.status === "uploading"
+          ? { ...item, status: "paused", error: message }
+          : item,
+      ),
+    );
   }
 
   async function retryProcessing(id: string) {
