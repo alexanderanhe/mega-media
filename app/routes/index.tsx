@@ -133,6 +133,16 @@ export default function IndexRoute() {
   }, []);
 
   useEffect(() => {
+    if (user) {
+      setShowLogin(false);
+      return;
+    }
+    if (items.length && items.every((item) => item.visibility === "PRIVATE")) {
+      setShowLogin(true);
+    }
+  }, [items, user]);
+
+  useEffect(() => {
     getMediaFacets({
       year: year || undefined,
       month: month || undefined,
