@@ -67,41 +67,59 @@ export default function IndexRoute() {
   const [showMenu, setShowMenu] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [typeFilter, setTypeFilter] = useState<"" | "image" | "video">("");
+  const [orientationFilter, setOrientationFilter] = useState<"" | "landscape" | "portrait" | "square">("");
   const [tagFilter, setTagFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
   const canvasRef = useRef<GameCanvasHandle | null>(null);
 
+  useEffect(() => {
+    setPage(1);
+    setHasMore(true);
+    setItems([]);
+  }, [year, month, fromDate, toDate, typeFilter, orientationFilter, tagFilter, categoryFilter]);
+
   const query = useMemo(() => {
-    const q = new URLSearchParams({ page: "1", pageSize: "200" });
+    const q = new URLSearchParams({ page: String(page), pageSize: "160" });
     q.set("sort", "date_asc");
     if (fromDate) q.set("from", startOfDayIso(fromDate));
     if (toDate) q.set("to", endOfDayIso(toDate));
     if (typeFilter) q.set("type", typeFilter);
+    if (orientationFilter) q.set("orientation", orientationFilter);
     if (tagFilter) q.set("tag", tagFilter);
     if (categoryFilter) q.set("category", categoryFilter);
     return q;
-  }, [fromDate, toDate, typeFilter, tagFilter, categoryFilter]);
+  }, [fromDate, toDate, typeFilter, orientationFilter, tagFilter, categoryFilter, page]);
 
   useEffect(() => {
     setLoading(true);
     getMediaPages(query)
       .then((data) => {
-        setItems(
-          data.items.map((item) => ({
-            id: item.id,
-            type: item.type,
-            aspect: item.aspect,
-            status: item.status,
-            title: item.title,
-            description: item.description,
-            dateTaken: item.dateTaken ?? null,
-            dateEffective: item.dateEffective,
-            hidden: item.hidden ?? (!user && item.visibility === "PRIVATE"),
-            visibility: item.visibility,
-          })),
-        );
+        const nextItems = data.items.map((item) => ({
+          id: item.id,
+          type: item.type,
+          aspect: item.aspect,
+          status: item.status,
+          title: item.title,
+          description: item.description,
+          dateTaken: item.dateTaken ?? null,
+          dateEffective: item.dateEffective,
+          hidden: item.hidden ?? (!user && item.visibility === "PRIVATE"),
+          visibility: item.visibility,
+        }));
+        setHasMore(page * 160 < data.total);
+        setItems((prev) => {
+          if (page === 1) return nextItems;
+          const seen = new Set(prev.map((item) => item.id));
+          const merged = [...prev];
+          for (const item of nextItems) {
+            if (!seen.has(item.id)) merged.push(item);
+          }
+          return merged;
+        });
       })
       .finally(() => setLoading(false));
   }, [query, user?.id]);
@@ -155,6 +173,11 @@ export default function IndexRoute() {
         items={items}
         onZoomChange={(value) => setZoom(value)}
         hasBackground={Boolean(backgroundImage)}
+        hasMore={hasMore}
+        onEndReached={() => {
+          if (loading || !hasMore) return;
+          setPage((prev) => prev + 1);
+        }}
       />
       <div className="pointer-events-none absolute bottom-6 right-6 z-30">
         <div className="relative h-16 w-16">
@@ -259,6 +282,7 @@ export default function IndexRoute() {
               tags={tags}
               categories={categories}
               typeFilter={typeFilter}
+              orientationFilter={orientationFilter}
               tagFilter={tagFilter}
               categoryFilter={categoryFilter}
               onClose={() => setShowFilters(false)}
@@ -269,6 +293,7 @@ export default function IndexRoute() {
                 setFromDate(range.fromDate);
                 setToDate(range.toDate);
                 setTypeFilter(next.type);
+                setOrientationFilter(next.orientation);
                 setTagFilter(next.tag);
                 setCategoryFilter(next.category);
                 setShowFilters(false);
@@ -279,6 +304,7 @@ export default function IndexRoute() {
                 setFromDate("");
                 setToDate("");
                 setTypeFilter("");
+                setOrientationFilter("");
                 setTagFilter("");
                 setCategoryFilter("");
                 setShowFilters(false);
@@ -633,6 +659,7 @@ function FilterDrawer({
   tags,
   categories,
   typeFilter,
+  orientationFilter,
   tagFilter,
   categoryFilter,
   onClose,
@@ -648,10 +675,20 @@ function FilterDrawer({
   tags: Array<{ tag: string; count: number }>;
   categories: Array<{ category: string; count: number }>;
   typeFilter: "" | "image" | "video";
+  orientationFilter: "" | "landscape" | "portrait" | "square";
   tagFilter: string;
   categoryFilter: string;
   onClose: () => void;
-  onApply: (value: { year: string; month: string; fromDate: string; toDate: string; type: "" | "image" | "video"; tag: string; category: string }) => void;
+  onApply: (value: {
+    year: string;
+    month: string;
+    fromDate: string;
+    toDate: string;
+    type: "" | "image" | "video";
+    orientation: "" | "landscape" | "portrait" | "square";
+    tag: string;
+    category: string;
+  }) => void;
   onClear: () => void;
 }) {
   const [nextYear, setNextYear] = useState(year);
@@ -659,6 +696,7 @@ function FilterDrawer({
   const [nextFrom, setNextFrom] = useState(fromDate);
   const [nextTo, setNextTo] = useState(toDate);
   const [nextType, setNextType] = useState<"" | "image" | "video">(typeFilter);
+  const [nextOrientation, setNextOrientation] = useState<"" | "landscape" | "portrait" | "square">(orientationFilter);
   const [nextTag, setNextTag] = useState(tagFilter);
   const [nextCategory, setNextCategory] = useState(categoryFilter);
 
@@ -668,9 +706,10 @@ function FilterDrawer({
     setNextFrom(fromDate);
     setNextTo(toDate);
     setNextType(typeFilter);
+    setNextOrientation(orientationFilter);
     setNextTag(tagFilter);
     setNextCategory(categoryFilter);
-  }, [year, month, fromDate, toDate, typeFilter, tagFilter, categoryFilter]);
+  }, [year, month, fromDate, toDate, typeFilter, orientationFilter, tagFilter, categoryFilter]);
 
   return (
     <div className="flex h-full flex-col">
@@ -695,6 +734,28 @@ function FilterDrawer({
                 onClick={() => setNextType(item.value as "" | "image" | "video")}
                 className={`rounded-full border px-3 py-1 text-xs ${
                   item.value === nextType ? "border-cyan-400 bg-cyan-500/20 text-cyan-200" : "border-white/10 text-slate-300"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="text-xs uppercase text-slate-400">Orientation</p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: "", label: "All" },
+              { value: "landscape", label: "Landscape" },
+              { value: "portrait", label: "Portrait" },
+              { value: "square", label: "Square" },
+            ].map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => setNextOrientation(item.value as "" | "landscape" | "portrait" | "square")}
+                className={`rounded-full border px-3 py-1 text-xs ${
+                  item.value === nextOrientation ? "border-cyan-400 bg-cyan-500/20 text-cyan-200" : "border-white/10 text-slate-300"
                 }`}
               >
                 {item.label}
@@ -855,6 +916,7 @@ function FilterDrawer({
               fromDate: nextFrom,
               toDate: nextTo,
               type: nextType,
+              orientation: nextOrientation,
               tag: nextTag,
               category: nextCategory,
             })

@@ -13,6 +13,16 @@ export const loader = async ({ request }: { request: Request }) =>
     if (query.type) filter.type = query.type;
     if (query.tag) filter.tags = normalizeToken(query.tag);
     if (query.category) filter.category = normalizeToken(query.category);
+    if (query.orientation) {
+      const epsilon = 0.05;
+      if (query.orientation === "landscape") {
+        filter.aspect = { $gt: 1 + epsilon };
+      } else if (query.orientation === "portrait") {
+        filter.aspect = { $lt: 1 - epsilon };
+      } else if (query.orientation === "square") {
+        filter.aspect = { $gte: 1 - epsilon, $lte: 1 + epsilon };
+      }
+    }
 
     const range = resolveDateRange(query.year, query.month, query.from, query.to);
     if (range) filter.dateEffective = range;

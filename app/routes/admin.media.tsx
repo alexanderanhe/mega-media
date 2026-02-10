@@ -70,6 +70,14 @@ export default function AdminMediaRoute() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const hasActiveFilters =
+    Boolean(search.trim()) ||
+    Boolean(fromDate) ||
+    Boolean(toDate) ||
+    Boolean(typeFilter) ||
+    Boolean(tagFilter.trim()) ||
+    Boolean(categoryFilter.trim()) ||
+    sort !== "date_desc";
   const [tagOptions, setTagOptions] = useState<string[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string | null>>({});
@@ -82,6 +90,49 @@ export default function AdminMediaRoute() {
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; tone: "success" | "warning" | "error" }>>(
     [],
   );
+  const totals = useMemo(() => {
+    let totalBytes = 0;
+    let imageCount = 0;
+    let videoCount = 0;
+    const imageSizes: number[] = [];
+    const videoSizes: number[] = [];
+    const orientationCounts = {
+      landscape: 0,
+      portrait: 0,
+      square: 0,
+      unknown: 0,
+    };
+
+    for (const item of items) {
+      if (item.type === "image") imageCount += 1;
+      if (item.type === "video") videoCount += 1;
+      if (item.sizeBytes && item.sizeBytes > 0) {
+        totalBytes += item.sizeBytes;
+        if (item.type === "image") imageSizes.push(item.sizeBytes);
+        if (item.type === "video") videoSizes.push(item.sizeBytes);
+      }
+      const aspect = resolveItemAspect(item.width, item.height, item.aspect);
+      const orientation = resolveOrientation(aspect);
+      if (!orientation) {
+        orientationCounts.unknown += 1;
+      } else {
+        orientationCounts[orientation] += 1;
+      }
+    }
+
+    return {
+      totalBytes,
+      totalCount: items.length,
+      imageCount,
+      videoCount,
+      imageRatio: imageCount + videoCount ? imageCount / (imageCount + videoCount) : 0,
+      imageAverage: average(imageSizes),
+      imageMedian: median(imageSizes),
+      videoAverage: average(videoSizes),
+      videoMedian: median(videoSizes),
+      orientationCounts,
+    };
+  }, [items]);
 
   const refresh = () => {
     setLoading(true);
@@ -182,13 +233,34 @@ export default function AdminMediaRoute() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">Media list</h2>
         <div className="flex items-center gap-3">
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                setFromDate("");
+                setToDate("");
+                setTypeFilter("");
+                setCategoryFilter("");
+                setTagFilter("");
+                setSort("date_desc");
+              }}
+              className="inline-flex items-center gap-2 rounded border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-200"
+            >
+              Clear filters
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setFiltersOpen(true)}
-            className="inline-flex items-center gap-2 rounded border border-white/10 bg-black/50 px-3 py-2 text-sm"
+            className={`inline-flex items-center gap-2 rounded border px-3 py-2 text-sm ${
+              hasActiveFilters
+                ? "border-cyan-400/60 bg-cyan-500/10 text-cyan-200"
+                : "border-white/10 bg-black/50 text-slate-200"
+            }`}
           >
             <FiFilter />
-            Filters
+            Filters {hasActiveFilters ? "(active)" : ""}
           </button>
           <button
             type="button"
@@ -260,6 +332,49 @@ export default function AdminMediaRoute() {
           </table>
         </div>
       ) : null}
+      <div className="rounded-xl border border-white/10 bg-slate-900 p-4">
+        <div className="flex flex-wrap items-start gap-6">
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-slate-400">Media status</div>
+            <div className="mt-1 text-lg font-semibold text-slate-100">{totals.totalCount} files</div>
+            <div className="text-xs text-slate-400">Storage {formatBytesTotal(totals.totalBytes)}</div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-12 w-12 rounded-full border border-white/10"
+              style={{
+                background:
+                  totals.totalCount > 0
+                    ? `conic-gradient(#38bdf8 0 ${totals.imageRatio * 100}%, #f59e0b ${totals.imageRatio * 100}% 100%)`
+                    : "conic-gradient(#334155 0 100%)",
+              }}
+            />
+            <div className="text-xs text-slate-300">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-sky-400" />
+                Images {totals.imageCount}
+              </div>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-amber-400" />
+                Videos {totals.videoCount}
+              </div>
+            </div>
+          </div>
+          <div className="text-xs text-slate-300">
+            <div className="text-[11px] uppercase tracking-wide text-slate-400">Size avg / median</div>
+            <div className="mt-1">Images {formatBytesTotal(totals.imageAverage)} · {formatBytesTotal(totals.imageMedian)}</div>
+            <div className="mt-1">Videos {formatBytesTotal(totals.videoAverage)} · {formatBytesTotal(totals.videoMedian)}</div>
+          </div>
+          <div className="text-xs text-slate-300">
+            <div className="text-[11px] uppercase tracking-wide text-slate-400">Orientation</div>
+            <div className="mt-1 flex flex-wrap gap-2">
+              <span className="rounded-full border border-white/10 px-2 py-0.5">Landscape {totals.orientationCounts.landscape}</span>
+              <span className="rounded-full border border-white/10 px-2 py-0.5">Portrait {totals.orientationCounts.portrait}</span>
+              <span className="rounded-full border border-white/10 px-2 py-0.5">Square {totals.orientationCounts.square}</span>
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="overflow-x-auto rounded-xl border border-white/10 bg-slate-900 p-4">
         <table className="w-full text-sm">
           <thead>
@@ -765,6 +880,44 @@ function formatBytes(bytes: number) {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
+function formatBytesTotal(bytes: number) {
+  if (!bytes || bytes <= 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
+function average(values: number[]) {
+  if (!values.length) return 0;
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return total / values.length;
+}
+
+function median(values: number[]) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return sorted[mid];
+}
+
+function resolveItemAspect(width?: number | null, height?: number | null, aspect?: number | null) {
+  if (width && height) return width / height;
+  if (aspect && Number.isFinite(aspect)) return aspect;
+  return null;
+}
+
+function resolveOrientation(aspect: number | null) {
+  if (!aspect || !Number.isFinite(aspect)) return null;
+  const epsilon = 0.05;
+  if (aspect > 1 + epsilon) return "landscape";
+  if (aspect < 1 - epsilon) return "portrait";
+  return "square";
 }
 
 function formatAspect(aspect?: number | null) {

@@ -39,8 +39,14 @@ export type GameCanvasHandle = {
 
 export const GameCanvas = forwardRef<
   GameCanvasHandle,
-  { items: GridMediaItem[]; onZoomChange?: (zoom: number) => void; hasBackground?: boolean }
->(function GameCanvas({ items, onZoomChange, hasBackground }, ref) {
+  {
+    items: GridMediaItem[];
+    onZoomChange?: (zoom: number) => void;
+    hasBackground?: boolean;
+    hasMore?: boolean;
+    onEndReached?: () => void;
+  }
+>(function GameCanvas({ items, onZoomChange, hasBackground, hasMore, onEndReached }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<any>(null);
   const worldRef = useRef<any>(null);
@@ -75,6 +81,9 @@ export const GameCanvas = forwardRef<
   const activeAnimationRef = useRef<CameraAnimation | null>(null);
   const overlayRef = useRef<OverlayState | null>(null);
   const onZoomChangeRef = useRef<typeof onZoomChange>(onZoomChange);
+  const onEndReachedRef = useRef<typeof onEndReached>(onEndReached);
+  const hasMoreRef = useRef<boolean | undefined>(hasMore);
+  const lastEndTriggerRef = useRef(0);
   const tiles = useMemo(() => layoutTiles(items), [items]);
   const bounds = useMemo(() => contentBounds(tiles), [tiles]);
 
@@ -143,6 +152,11 @@ export const GameCanvas = forwardRef<
   useEffect(() => {
     onZoomChangeRef.current = onZoomChange;
   }, [onZoomChange]);
+
+  useEffect(() => {
+    onEndReachedRef.current = onEndReached;
+    hasMoreRef.current = hasMore;
+  }, [onEndReached, hasMore]);
 
   useImperativeHandle(
     ref,
@@ -693,6 +707,7 @@ export const GameCanvas = forwardRef<
       }
 
       updateFocusedRect(hostRect);
+      maybeTriggerEndReached(hostRect);
     }
 
     drawVisibleRef.current = () => {
@@ -826,6 +841,18 @@ export const GameCanvas = forwardRef<
     if (!focusedIdRef.current) return;
     focusInterruptedRef.current = true;
     clearFocus();
+  }
+
+  function maybeTriggerEndReached(hostRect: DOMRect) {
+    if (!hasMoreRef.current || !onEndReachedRef.current) return;
+    const now = performance.now();
+    if (now - lastEndTriggerRef.current < 800) return;
+    const bounds = boundsRef.current;
+    const viewBottomWorld = (-cameraRef.current.y + hostRect.height) / cameraRef.current.zoom;
+    if (bounds.maxY - viewBottomWorld < 420) {
+      lastEndTriggerRef.current = now;
+      onEndReachedRef.current?.();
+    }
   }
 
   function clampCamera(width: number, height: number) {
