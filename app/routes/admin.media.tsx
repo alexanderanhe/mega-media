@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FiChevronDown, FiChevronUp, FiFilter, FiImage, FiMoreHorizontal, FiUploadCloud, FiVideo } from "react-icons/fi";
+import { FiChevronDown, FiChevronUp, FiFilter, FiImage, FiLogIn, FiMoreHorizontal, FiUploadCloud, FiVideo } from "react-icons/fi";
 import { Drawer } from "vaul";
 import type { Route } from "./+types/admin.media";
 import { requireAdminPage } from "~/server/guards";
-import { getAdminMediaSummary, getBatchUrls, getMediaCategories, getMediaPages, getMediaTags, patchMedia, retryMediaProcessing } from "~/shared/client-api";
+import {
+  clearMediaUrlCache,
+  getAdminMediaSummary,
+  getBatchUrls,
+  getMediaCategories,
+  getMediaPages,
+  getMediaTags,
+  getMe,
+  login,
+  patchMedia,
+  retryMediaProcessing,
+} from "~/shared/client-api";
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdminPage(request);
@@ -71,6 +82,8 @@ export default function AdminMediaRoute() {
     },
   });
   const [refreshToken, setRefreshToken] = useState(0);
+  const [showLogin, setShowLogin] = useState(false);
+  const [authBlocked, setAuthBlocked] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploads, setUploads] = useState<
     Array<{
@@ -78,7 +91,7 @@ export default function AdminMediaRoute() {
       name: string;
       size: number;
       progress: number;
-      status: "queued" | "uploading" | "done" | "error";
+      status: "queued" | "uploading" | "done" | "error" | "paused";
       error?: string;
     }>
   >([]);
@@ -686,6 +699,18 @@ export default function AdminMediaRoute() {
         {loadingMore ? "Loading more..." : hasMore ? "Scroll for more" : "End of results"}
       </div>
       <div ref={sentinelRef} className="h-2" />
+      {showLogin ? (
+        <LoginModal
+          onClose={() => setShowLogin(false)}
+          onSuccess={async () => {
+            setAuthBlocked(false);
+            setShowLogin(false);
+            clearMediaUrlCache();
+            await getMe().catch(() => undefined);
+            void processUploadQueue();
+          }}
+        />
+      ) : null}
       <Drawer.Root open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)} direction="right">
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 z-40 bg-black/70" />
@@ -1042,6 +1067,10 @@ export default function AdminMediaRoute() {
   }
 
   async function processUploadQueue() {
+    if (authBlocked) {
+      setShowLogin(true);
+      return;
+    }
     if (uploadingRef.current) return;
     uploadingRef.current = true;
     setUploading(true);
@@ -1064,6 +1093,19 @@ export default function AdminMediaRoute() {
           );
           successCount += 1;
         } catch (err) {
+          if (isUnauthorizedError(err)) {
+            setAuthBlocked(true);
+            setShowLogin(true);
+            uploadQueueRef.current.unshift(file);
+            setUploads((prev) =>
+              prev.map((item) =>
+                item.key === key
+                  ? { ...item, status: "paused", error: "Session expired" }
+                  : item,
+              ),
+            );
+            break;
+          }
           setUploads((prev) =>
             prev.map((item) =>
               item.key === key
@@ -1123,6 +1165,8 @@ function uploadWithProgress(file: File, onProgress: (progress: number) => void) 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve();
+      } else if (xhr.status === 401) {
+        reject(new UnauthorizedError());
       } else {
         try {
           const payload = JSON.parse(xhr.responseText);
@@ -1135,6 +1179,17 @@ function uploadWithProgress(file: File, onProgress: (progress: number) => void) 
     xhr.onerror = () => reject(new Error("Upload failed"));
     xhr.send(formData);
   });
+}
+
+class UnauthorizedError extends Error {
+  constructor() {
+    super("Unauthorized");
+    this.name = "UnauthorizedError";
+  }
+}
+
+function isUnauthorizedError(error: unknown) {
+  return error instanceof UnauthorizedError || (error instanceof Error && error.message === "Unauthorized");
 }
 
 function formatBytes(bytes: number) {
@@ -1151,6 +1206,62 @@ function formatBytesTotal(bytes: number) {
   const sizes = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
+function LoginModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Login</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+            Close
+          </button>
+        </div>
+        <div className="space-y-3">
+          <input
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Email"
+            type="email"
+            className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
+          />
+          <input
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Password"
+            type="password"
+            className="w-full rounded border border-white/20 bg-black/30 px-3 py-2"
+          />
+          {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+          <button
+            type="button"
+            disabled={loading}
+            onClick={async () => {
+              setLoading(true);
+              setError(null);
+              try {
+                await login(email, password);
+                onSuccess();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Login failed");
+              } finally {
+                setLoading(false);
+              }
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded bg-cyan-600 px-4 py-2 font-semibold disabled:opacity-60"
+          >
+            <FiLogIn /> Login
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function formatShortDate(value: string | null | undefined) {

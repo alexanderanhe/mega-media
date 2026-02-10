@@ -1079,7 +1079,7 @@ export const GameCanvas = forwardRef<
 
 function layoutTiles(items: GridMediaItem[]): Tile[] {
   const colWidth = TILE_BASE;
-  const columns = Math.max(8, Math.ceil(Math.sqrt(items.length)));
+  const columns = Math.max(8, Math.ceil(estimateColumnsForSquare(items, colWidth, GAP)));
   const heights = new Array(columns).fill(0);
   const tiles: Tile[] = [];
 
@@ -1097,6 +1097,25 @@ function layoutTiles(items: GridMediaItem[]): Tile[] {
   }
 
   return tiles;
+}
+
+function estimateColumnsForSquare(items: GridMediaItem[], colWidth: number, gap: number) {
+  const count = items.length;
+  if (!count) return 1;
+  const invAspectSum = items.reduce((sum, item) => {
+    const aspect = item.aspect ?? 1;
+    const safeAspect = aspect > 0 ? aspect : 1;
+    return sum + 1 / safeAspect;
+  }, 0);
+  const totalHeights = colWidth * invAspectSum + gap * count;
+  const unitWidth = colWidth + gap;
+  const estimate = Math.sqrt(totalHeights / unitWidth);
+  return clampNumber(estimate, 6, 80);
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
 }
 
 function contentBounds(tiles: Tile[]) {
