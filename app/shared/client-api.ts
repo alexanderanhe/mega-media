@@ -308,3 +308,30 @@ export function patchMedia(id: string, payload: {
     body: JSON.stringify(payload),
   });
 }
+
+export function getAdminMediaById(id: string) {
+  return request<{
+    id: string;
+    type: "image" | "video";
+    status: "processing" | "ready" | "error";
+    title: string;
+    description: string;
+    r2KeyOriginal: string;
+    durationSeconds: number | null;
+    dateEffective: string;
+  }>(`/api/admin/media/${id}`, { headers: {} });
+}
+
+export function trimMediaVideo(id: string, payload: { startSeconds: number; endSeconds: number }) {
+  return request<{ ok: boolean; reencoded: boolean }>(`/api/admin/media/${id}/trim`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function retryMediaProcessing(id: string) {
+  return request<{ ok: boolean }>(`/api/admin/media/${id}/retry`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}

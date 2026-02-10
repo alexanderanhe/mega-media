@@ -7,6 +7,7 @@ export default [
   route("admin", "routes/admin.tsx", [
     route("users", "routes/admin.users.tsx"),
     route("media", "routes/admin.media.tsx"),
+    route("media/trim/:id", "routes/admin.media.trim.$id.tsx"),
   ]),
 
   route("api/auth/login", "routes/api.auth.login.ts"),
@@ -21,6 +22,8 @@ export default [
   route("api/admin/users/:id", "routes/api.admin.users.$id.ts"),
   route("api/admin/media/upload", "routes/api.admin.media.upload.ts"),
   route("api/admin/media/:id", "routes/api.admin.media.$id.ts"),
+  route("api/admin/media/:id/retry", "routes/api.admin.media.$id.retry.ts"),
+  route("api/admin/media/:id/trim", "routes/api.admin.media.$id.trim.ts"),
 
   route("api/media/pages", "routes/api.media.pages.ts"),
   route("api/media/facets", "routes/api.media.facets.ts"),

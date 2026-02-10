@@ -7,4 +7,5 @@
 /build/
 
 # Branding overrides (local-only)
-/public/branding/custom/
+/public/branding/*
+!/public/branding/default/

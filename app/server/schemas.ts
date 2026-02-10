@@ -82,3 +82,8 @@ export const patchMediaSchema = z.object({
     .nullable()
     .optional(),
 });
+
+export const trimMediaSchema = z.object({
+  startSeconds: z.number().min(0),
+  endSeconds: z.number().min(0),
+});

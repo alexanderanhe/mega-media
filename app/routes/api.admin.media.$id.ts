@@ -3,6 +3,27 @@ import { deleteObjects } from "~/server/r2";
 import { ApiError, jsonOk, parseJson, requireRole, withApiErrorHandling } from "~/server/http";
 import { patchMediaSchema } from "~/server/schemas";
 
+export const loader = async ({ request, params }: { request: Request; params: { id: string } }) =>
+  withApiErrorHandling(async () => {
+    await requireRole(request, "ADMIN");
+    if (!ObjectId.isValid(params.id)) throw new ApiError(400, "Invalid media id");
+
+    const { media } = await getCollections();
+    const existing = await media.findOne({ _id: new ObjectId(params.id) });
+    if (!existing) throw new ApiError(404, "Media not found");
+
+    return jsonOk({
+      id: existing._id.toString(),
+      type: existing.type,
+      status: existing.status,
+      title: existing.title ?? "Untitled",
+      description: existing.description ?? "",
+      r2KeyOriginal: existing.r2KeyOriginal,
+      durationSeconds: existing.preview?.duration ?? null,
+      dateEffective: existing.dateEffective,
+    });
+  })(request);
+
 export const action = async ({ request, params }: { request: Request; params: { id: string } }) =>
   withApiErrorHandling(async () => {
     await requireRole(request, "ADMIN");

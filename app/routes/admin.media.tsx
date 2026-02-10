@@ -3,7 +3,7 @@ import { FiFilter, FiImage, FiMoreHorizontal, FiUploadCloud, FiVideo } from "rea
 import { Drawer } from "vaul";
 import type { Route } from "./+types/admin.media";
 import { requireAdminPage } from "~/server/guards";
-import { getBatchUrls, getMediaCategories, getMediaPages, getMediaTags, patchMedia } from "~/shared/client-api";
+import { getBatchUrls, getMediaCategories, getMediaPages, getMediaTags, patchMedia, retryMediaProcessing } from "~/shared/client-api";
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdminPage(request);
@@ -43,6 +43,8 @@ export default function AdminMediaRoute() {
     height: string;
     tags: string[];
     category: string;
+    mediaType: "image" | "video";
+    mediaStatus: "processing" | "ready" | "error";
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -62,6 +64,7 @@ export default function AdminMediaRoute() {
   const dragCounter = useRef(0);
   const [dragActive, setDragActive] = useState(false);
   const [patchingIds, setPatchingIds] = useState<Set<string>>(new Set());
+  const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -457,25 +460,39 @@ export default function AdminMediaRoute() {
                     </td>
                     <td className="text-sm text-slate-300">{new Date(item.dateEffective).toLocaleDateString()}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:text-white"
-                        onClick={() => {
-                          setEditing({
-                            id: item.id,
-                            title: item.title ?? "",
-                            description: item.description ?? "",
-                            dateTaken: item.dateTaken ? toLocalInputValue(new Date(item.dateTaken)) : "",
-                            placeName: item.placeName ?? "",
-                            width: item.width ? String(item.width) : "",
-                            height: item.height ? String(item.height) : "",
-                            tags: item.tags ?? [],
-                            category: item.category ?? "",
-                          });
-                        }}
-                      >
-                        <FiMoreHorizontal />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {item.status === "error" ? (
+                          <button
+                            type="button"
+                            disabled={retryingIds.has(item.id)}
+                            onClick={() => retryProcessing(item.id)}
+                            className="rounded border border-amber-400/60 px-2 py-1 text-xs text-amber-200 hover:bg-amber-500/10 disabled:opacity-60"
+                          >
+                            {retryingIds.has(item.id) ? "Retrying..." : "Retry"}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:text-white"
+                          onClick={() => {
+                            setEditing({
+                              id: item.id,
+                              title: item.title ?? "",
+                              description: item.description ?? "",
+                              dateTaken: item.dateTaken ? toLocalInputValue(new Date(item.dateTaken)) : "",
+                              placeName: item.placeName ?? "",
+                              width: item.width ? String(item.width) : "",
+                              height: item.height ? String(item.height) : "",
+                              tags: item.tags ?? [],
+                              category: item.category ?? "",
+                              mediaType: item.type,
+                              mediaStatus: item.status,
+                            });
+                          }}
+                        >
+                          <FiMoreHorizontal />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -841,6 +858,23 @@ export default function AdminMediaRoute() {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
+
+  async function retryProcessing(id: string) {
+    setRetryingIds((prev) => new Set(prev).add(id));
+    try {
+      await retryMediaProcessing(id);
+      setItems((prev) => prev.map((item) => (item.id === id ? { ...item, status: "processing", errorMessage: null } : item)));
+      pushToast("Reprocessing queued", "success");
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : "Retry failed", "error");
+    } finally {
+      setRetryingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
 }
 
 function uploadWithProgress(file: File, onProgress: (progress: number) => void) {
@@ -1007,6 +1041,8 @@ function EditDrawerContent({
     height: string;
     tags: string[];
     category: string;
+    mediaType: "image" | "video";
+    mediaStatus: "processing" | "ready" | "error";
   };
   saving: boolean;
   deleting: boolean;
@@ -1023,6 +1059,8 @@ function EditDrawerContent({
     height: string;
     tags: string[];
     category: string;
+    mediaType: "image" | "video";
+    mediaStatus: "processing" | "ready" | "error";
   }) => void;
   onDelete: (id: string) => void;
   previewUrl: string | null;
@@ -1044,6 +1082,14 @@ function EditDrawerContent({
           <div className="overflow-hidden rounded-xl border border-white/10 bg-black/40">
             <img src={previewUrl} alt="" className="h-full w-full max-h-80 object-contain" />
           </div>
+        ) : null}
+        {value.mediaType === "video" && value.mediaStatus === "ready" ? (
+          <a
+            href={`/admin/media/trim/${value.id}`}
+            className="inline-flex w-full items-center justify-center rounded border border-white/20 px-3 py-2 text-sm text-slate-200 hover:bg-white/5"
+          >
+            Trim video
+          </a>
         ) : null}
         <label className="block text-sm text-slate-300">Title</label>
         <input
