@@ -98,6 +98,7 @@ export const loader = async ({ request }: { request: Request }) =>
           variants: 1,
           poster: 1,
           preview: 1,
+          originalBytes: 1,
         })
         .toArray(),
       media.countDocuments(filter),
@@ -147,6 +148,7 @@ export const loader = async ({ request }: { request: Request }) =>
         tags: auth ? (item.tags ?? []) : undefined,
         category: auth ? (item.category ?? null) : undefined,
         sizeBytes: auth ? pickSize(item) : undefined,
+        originalBytes: auth ? (item.originalBytes ?? null) : undefined,
         variantSizes: auth ? pickVariantSizes(item) : undefined,
         durationSeconds: auth ? (item.preview?.duration ?? null) : null,
         liked: auth ? likedSet.has(item._id.toString()) : false,

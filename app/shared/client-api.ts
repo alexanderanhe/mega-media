@@ -26,6 +26,7 @@ export type MediaListItem = {
   durationSeconds?: number | null;
   liked?: boolean;
   likesCount?: number;
+  originalBytes?: number | null;
 };
 
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {

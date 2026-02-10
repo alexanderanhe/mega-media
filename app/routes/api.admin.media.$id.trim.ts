@@ -96,6 +96,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
 
     const finalKey = `media/${existing._id.toString()}/original.${finalExt}`;
     const contentType = mimeFromExt(finalExt);
+    const finalSize = (await fs.stat(finalPath)).size;
 
     const newHash = await hashFile(finalPath);
 
@@ -116,6 +117,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
       {
         $set: {
           r2KeyOriginal: finalKey,
+          originalBytes: finalSize,
           fileHash: newHash,
           status: "processing",
           variants: {},

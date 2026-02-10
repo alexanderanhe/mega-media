@@ -38,6 +38,7 @@ type MediaCollectionDoc = {
   poster: { r2Key: string; w: number; h: number; mime: string } | null;
   preview: { r2Key: string; mime: string; duration?: number } | null;
   blur?: { r2Key: string; w: number; h: number; mime: string } | null;
+  originalBytes?: number | null;
   width?: number | null;
   height?: number | null;
   aspect: number;

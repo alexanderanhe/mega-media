@@ -27,6 +27,7 @@ export default function AdminMediaRoute() {
       placeName?: string | null;
       dateTaken?: string | null;
       sizeBytes?: number | null;
+      originalBytes?: number | null;
       variantSizes?: Record<string, number> | null;
       durationSeconds?: number | null;
       tags?: string[];
@@ -93,6 +94,7 @@ export default function AdminMediaRoute() {
     id: string;
     title?: string;
     variantSizes: Record<string, number>;
+    originalBytes?: number | null;
   } | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; tone: "success" | "warning" | "error" }>>(
     [],
@@ -113,10 +115,11 @@ export default function AdminMediaRoute() {
     for (const item of items) {
       if (item.type === "image") imageCount += 1;
       if (item.type === "video") videoCount += 1;
-      if (item.sizeBytes && item.sizeBytes > 0) {
-        totalBytes += item.sizeBytes;
-        if (item.type === "image") imageSizes.push(item.sizeBytes);
-        if (item.type === "video") videoSizes.push(item.sizeBytes);
+      const baseSize = item.originalBytes ?? item.sizeBytes ?? 0;
+      if (baseSize > 0) {
+        totalBytes += baseSize;
+        if (item.type === "image") imageSizes.push(baseSize);
+        if (item.type === "video") videoSizes.push(baseSize);
       }
       const aspect = resolveItemAspect(item.width, item.height, item.aspect);
       const orientation = resolveOrientation(aspect);
@@ -168,6 +171,7 @@ export default function AdminMediaRoute() {
         placeName: item.placeName ?? null,
         dateTaken: item.dateTaken ?? null,
         sizeBytes: item.sizeBytes ?? null,
+        originalBytes: item.originalBytes ?? null,
         variantSizes: item.variantSizes ?? null,
         durationSeconds: item.durationSeconds ?? null,
         tags: item.tags ?? [],
@@ -446,7 +450,7 @@ export default function AdminMediaRoute() {
                     <td className="text-xs text-slate-300">{item.type === "video" ? formatDuration(item.durationSeconds) : "-"}</td>
                     <td className="text-xs text-slate-300">
                       <div className="flex flex-col items-start gap-1">
-                        <span>{formatBytes(item.sizeBytes ?? 0)}</span>
+                        <span>{formatBytes(item.originalBytes ?? item.sizeBytes ?? 0)}</span>
                         {item.variantSizes ? (
                           <button
                             type="button"
@@ -455,6 +459,7 @@ export default function AdminMediaRoute() {
                                 id: item.id,
                                 title: item.title ?? "Untitled",
                                 variantSizes: item.variantSizes ?? {},
+                                originalBytes: item.originalBytes ?? null,
                               })
                             }
                             className="text-xs text-cyan-300 hover:text-cyan-200"
@@ -602,6 +607,12 @@ export default function AdminMediaRoute() {
                 <div className="text-sm text-slate-300">{sizeDetails.title ?? "Untitled"}</div>
                 <div className="rounded-xl border border-white/10">
                   <div className="grid grid-cols-2 gap-y-2 px-4 py-3 text-sm">
+                    {sizeDetails.originalBytes ? (
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-slate-400">ORIGINAL</span>
+                        <span className="text-slate-100">{formatBytes(sizeDetails.originalBytes)}</span>
+                      </div>
+                    ) : null}
                     {Object.entries(sizeDetails.variantSizes)
                       .sort((a, b) => a[0].localeCompare(b[0]))
                       .map(([key, bytes]) => (

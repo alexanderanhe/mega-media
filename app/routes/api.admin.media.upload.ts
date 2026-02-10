@@ -121,6 +121,7 @@ export const action = async ({ request }: { request: Request }) =>
             ? { lat: 0, lng: 0, source: "manual", placeName }
             : null,
         r2KeyOriginal: originalKey,
+        originalBytes: file.size,
         variants: {},
         poster: null,
         preview: null,
