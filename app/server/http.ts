@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { readAccessToken, verifyAccessToken } from "./auth";
 import { scheduleProcessingRecovery } from "./media-recovery";
+import { schedulePartsMergeWorker } from "./parts-merge-worker";
 
 scheduleProcessingRecovery();
+schedulePartsMergeWorker();
 
 export class ApiError extends Error {
   status: number;

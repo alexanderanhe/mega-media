@@ -49,4 +49,14 @@ export interface MediaDoc {
   splitStartSeconds?: number;
   splitEndSeconds?: number;
   splitChildrenCount?: number;
+  mergedFrom?: {
+    groupKey: string;
+    groupHash: string;
+    baseName: string;
+    fileNames: string[];
+    parts: number[];
+    totalParts: number;
+    r2Keys: string[];
+    mergedAt: Date;
+  };
 }

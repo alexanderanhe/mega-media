@@ -50,6 +50,38 @@ type MediaCollectionDoc = {
   splitStartSeconds?: number;
   splitEndSeconds?: number;
   splitChildrenCount?: number;
+  mergedFrom?: {
+    groupKey: string;
+    groupHash: string;
+    baseName: string;
+    fileNames: string[];
+    parts: number[];
+    totalParts: number;
+    r2Keys: string[];
+    mergedAt: Date;
+  };
+};
+
+type MediaPartDoc = {
+  _id: ObjectId;
+  groupKey: string;
+  groupHash: string;
+  baseName: string;
+  originalName: string;
+  extension: string;
+  partNumber: number;
+  r2Key: string;
+  bytes: number;
+  status: "pending" | "merging" | "error";
+  errorMessage?: string;
+  visibility: "PUBLIC" | "PRIVATE";
+  title: string;
+  description: string;
+  dateTaken: Date | null;
+  location: { lat: number; lng: number; source: "exif" | "manual" | "none"; placeName?: string } | null;
+  createdAt: Date;
+  updatedAt: Date;
+  lockedAt?: Date;
 };
 
 type LikeDoc = {
@@ -91,6 +123,7 @@ export async function getCollections() {
   return {
     users: db.collection<UserDoc>("users"),
     media: db.collection<MediaCollectionDoc>("media"),
+    mediaParts: db.collection<MediaPartDoc>("media_parts"),
     likes: db.collection<LikeDoc>("likes"),
   };
 }
@@ -98,6 +131,7 @@ export async function getCollections() {
 async function initialize(db: Awaited<ReturnType<typeof getDb>>) {
   const users = db.collection<UserDoc>("users");
   const media = db.collection<MediaCollectionDoc>("media");
+  const mediaParts = db.collection<MediaPartDoc>("media_parts");
   const likes = db.collection<LikeDoc>("likes");
 
   await users.createIndex({ email: 1 }, { unique: true });
@@ -113,6 +147,10 @@ async function initialize(db: Awaited<ReturnType<typeof getDb>>) {
   );
   await likes.createIndex({ userId: 1, mediaId: 1 }, { unique: true });
   await likes.createIndex({ mediaId: 1 });
+
+  await mediaParts.createIndex({ groupKey: 1, partNumber: 1 }, { unique: true });
+  await mediaParts.createIndex({ groupKey: 1, status: 1, createdAt: 1 });
+  await mediaParts.createIndex({ status: 1, lockedAt: 1 });
 
   const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
   const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
@@ -133,4 +171,4 @@ async function initialize(db: Awaited<ReturnType<typeof getDb>>) {
 }
 
 export { ObjectId };
-export type { UserDoc, MediaCollectionDoc, LikeDoc };
+export type { UserDoc, MediaCollectionDoc, MediaPartDoc, LikeDoc };

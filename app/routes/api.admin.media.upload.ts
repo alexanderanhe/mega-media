@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import busboy from "busboy";
 import { getCollections, ObjectId } from "~/server/db";
-import { uploadBufferToR2 } from "~/server/r2";
+import { uploadBufferToR2, uploadFileToR2 } from "~/server/r2";
 import { enqueueMediaProcessing } from "~/server/media-processor";
 import { ApiError, jsonOk, requireRole, withApiErrorHandling } from "~/server/http";
 
@@ -59,6 +59,66 @@ export const action = async ({ request }: { request: Request }) =>
 
     if (file.size > 500 * 1024 * 1024) {
       throw new ApiError(413, "File exceeds 500MB limit");
+    }
+
+    const partInfo = type === "video" ? parsePartFilename(file.filename) : null;
+    if (partInfo) {
+      const { mediaParts } = await getCollections();
+      const now = new Date();
+      const groupKey = `${partInfo.baseName}.${partInfo.extension}`;
+      const groupHash = createHash("sha1").update(groupKey).digest("hex");
+      const r2Key = `multipart/${groupHash}/part${String(partInfo.partNumber).padStart(4, "0")}.${partInfo.extension}`;
+      const location = hasCoords
+        ? { lat: lat as number, lng: lng as number, source: "exif", placeName }
+        : placeName
+          ? { lat: 0, lng: 0, source: "manual", placeName }
+          : null;
+      const normalizedTitle =
+        typeof titleRaw === "string" && titleRaw.trim() ? titleRaw.trim() : partInfo.baseName;
+
+      await uploadFileToR2({
+        key: r2Key,
+        filePath: file.path,
+        contentType: file.mimeType || "video/mp4",
+        cacheControl: "public, max-age=31536000, immutable",
+      });
+
+      await mediaParts.updateOne(
+        { groupKey, partNumber: partInfo.partNumber },
+        {
+          $set: {
+            groupKey,
+            groupHash,
+            baseName: partInfo.baseName,
+            originalName: file.filename,
+            extension: partInfo.extension,
+            partNumber: partInfo.partNumber,
+            r2Key,
+            bytes: file.size,
+            status: "pending",
+            visibility,
+            title: normalizedTitle,
+            description,
+            dateTaken: manualDateTaken,
+            location,
+            updatedAt: now,
+          },
+          $setOnInsert: {
+            _id: new ObjectId(),
+            createdAt: now,
+          },
+          $unset: {
+            errorMessage: "",
+          },
+        },
+        { upsert: true },
+      );
+
+      await fs.unlink(file.path).catch(() => undefined);
+      return jsonOk(
+        { status: "queued-merge", groupKey, partNumber: partInfo.partNumber },
+        { status: 202 },
+      );
     }
 
     const bytes = await fs.readFile(file.path);
@@ -239,4 +299,14 @@ function extensionFromFile(name: string, mime: string, type: "image" | "video") 
 
 function fallbackMime(type: "image" | "video") {
   return type === "image" ? "image/jpeg" : "video/mp4";
+}
+
+function parsePartFilename(filename: string) {
+  const match = /^(.*)-part(\d+)\.([a-z0-9]{1,5})$/i.exec(filename.trim());
+  if (!match) return null;
+  const baseName = match[1].trim();
+  const partNumber = Number.parseInt(match[2], 10);
+  const extension = match[3].toLowerCase();
+  if (!baseName || !Number.isFinite(partNumber) || partNumber < 1) return null;
+  return { baseName, partNumber, extension };
 }

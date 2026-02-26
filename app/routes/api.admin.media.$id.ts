@@ -35,6 +35,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
       const { media } = await getCollections();
       const existing = await media.findOne({ _id: new ObjectId(params.id) });
       if (!existing) throw new ApiError(404, "Media not found");
+      if (existing.status !== "ready") throw new ApiError(409, "Media is processing");
 
       const keys = [
         existing.r2KeyOriginal,
@@ -92,6 +93,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
     const { media } = await getCollections();
     const existing = await media.findOne({ _id: new ObjectId(params.id) });
     if (!existing) throw new ApiError(404, "Media not found");
+    if (existing.status !== "ready") throw new ApiError(409, "Media is processing");
 
     if (patch.dateTaken !== undefined && patch.dateEffective === undefined) {
       patch.dateEffective = existing.createdAt;
