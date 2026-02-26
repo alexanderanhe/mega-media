@@ -210,6 +210,7 @@ async function processReadyGroups() {
       });
 
       await deleteObjects(parts.map((part) => part.r2Key));
+      await cleanupSourceMedia(parts);
       await mediaParts.deleteMany({ groupKey: candidate._id });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Merge failed";
@@ -220,6 +221,34 @@ async function processReadyGroups() {
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
     }
+  }
+}
+
+async function cleanupSourceMedia(
+  parts: Array<{ sourceMediaId?: ObjectId | null }>,
+) {
+  const { media } = await getCollections();
+  const sourceIds = Array.from(
+    new Set(
+      parts
+        .map((part) => part.sourceMediaId?.toString())
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  if (!sourceIds.length) return;
+
+  for (const id of sourceIds) {
+    const doc = await media.findOne({ _id: new ObjectId(id) });
+    if (!doc) continue;
+    const keys = [
+      doc.r2KeyOriginal,
+      ...Object.values(doc.variants ?? {}).map((variant) => variant.r2Key),
+      doc.poster?.r2Key,
+      doc.preview?.r2Key,
+      doc.blur?.r2Key,
+    ].filter(Boolean) as string[];
+    await deleteObjects(keys);
+    await media.deleteOne({ _id: new ObjectId(id) });
   }
 }
 

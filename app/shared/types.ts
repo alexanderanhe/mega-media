@@ -49,6 +49,9 @@ export interface MediaDoc {
   splitStartSeconds?: number;
   splitEndSeconds?: number;
   splitChildrenCount?: number;
+  mergeLocked?: boolean;
+  mergeLockedAt?: Date;
+  mergeGroupKey?: string;
   mergedFrom?: {
     groupKey: string;
     groupHash: string;

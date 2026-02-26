@@ -50,6 +50,9 @@ type MediaCollectionDoc = {
   splitStartSeconds?: number;
   splitEndSeconds?: number;
   splitChildrenCount?: number;
+  mergeLocked?: boolean;
+  mergeLockedAt?: Date;
+  mergeGroupKey?: string;
   mergedFrom?: {
     groupKey: string;
     groupHash: string;
@@ -74,6 +77,7 @@ type MediaPartDoc = {
   bytes: number;
   status: "pending" | "merging" | "error";
   errorMessage?: string;
+  sourceMediaId?: ObjectId;
   visibility: "PUBLIC" | "PRIVATE";
   title: string;
   description: string;

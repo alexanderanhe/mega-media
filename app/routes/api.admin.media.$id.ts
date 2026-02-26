@@ -36,6 +36,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
       const existing = await media.findOne({ _id: new ObjectId(params.id) });
       if (!existing) throw new ApiError(404, "Media not found");
       if (existing.status !== "ready") throw new ApiError(409, "Media is processing");
+      if (existing.mergeLocked) throw new ApiError(409, "Media is locked for merge");
 
       const keys = [
         existing.r2KeyOriginal,
@@ -94,6 +95,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
     const existing = await media.findOne({ _id: new ObjectId(params.id) });
     if (!existing) throw new ApiError(404, "Media not found");
     if (existing.status !== "ready") throw new ApiError(409, "Media is processing");
+    if (existing.mergeLocked) throw new ApiError(409, "Media is locked for merge");
 
     if (patch.dateTaken !== undefined && patch.dateEffective === undefined) {
       patch.dateEffective = existing.createdAt;

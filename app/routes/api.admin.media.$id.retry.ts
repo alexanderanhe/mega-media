@@ -15,6 +15,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
     const existing = await media.findOne({ _id: new ObjectId(params.id) });
     if (!existing) throw new ApiError(404, "Media not found");
     if (!existing.r2KeyOriginal) throw new ApiError(400, "Missing original file");
+    if (existing.mergeLocked) throw new ApiError(409, "Media is locked for merge");
     if (existing.status === "processing") throw new ApiError(409, "Media is already processing");
 
     const tmpPath = path.join(os.tmpdir(), `${existing._id.toString()}-retry`);

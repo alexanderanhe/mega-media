@@ -30,6 +30,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
     if (!existing) throw new ApiError(404, "Media not found");
     if (existing.type !== "video") throw new ApiError(400, "Only videos can be trimmed");
     if (existing.status !== "ready") throw new ApiError(409, "Video must be ready to trim");
+    if (existing.mergeLocked) throw new ApiError(409, "Media is locked for merge");
     if (!existing.r2KeyOriginal) throw new ApiError(400, "Missing original video");
 
     const inputPath = path.join(os.tmpdir(), `${existing._id.toString()}-original`);

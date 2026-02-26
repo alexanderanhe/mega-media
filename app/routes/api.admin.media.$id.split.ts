@@ -28,6 +28,7 @@ export const action = async ({ request, params }: { request: Request; params: { 
     if (!existing) throw new ApiError(404, "Media not found");
     if (existing.type !== "video") throw new ApiError(400, "Only videos can be split");
     if (existing.status !== "ready") throw new ApiError(409, "Video must be ready to split");
+    if (existing.mergeLocked) throw new ApiError(409, "Media is locked for merge");
     if (!existing.r2KeyOriginal) throw new ApiError(400, "Missing original video");
     if (existing.splitParentId) throw new ApiError(409, "Split segments cannot be split again");
 
