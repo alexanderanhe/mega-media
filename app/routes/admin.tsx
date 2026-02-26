@@ -39,6 +39,7 @@ export default function AdminLayout() {
           <a href="/">Grid</a>
           <a href="/admin/users">Users</a>
           <a href="/admin/media">Media</a>
+          <a href="/admin/jobs">Jobs</a>
           <div className="relative">
             <button
               type="button"
